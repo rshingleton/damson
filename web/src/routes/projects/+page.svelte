@@ -1,6 +1,10 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import * as Alert from '$lib/components/ui/alert';
+	import * as Dialog from '$lib/components/ui/dialog';
+	import * as Table from '$lib/components/ui/table';
 	import * as Select from '$lib/components/ui/select';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
@@ -12,18 +16,19 @@
 		canManage,
 		createProject,
 		deleteProject,
-		depth,
 		fetchAccess,
 		fetchNodeScope,
 		fetchProjects,
 		isInstanceAdmin,
-		leaf,
 		problemMessage,
 		saveAccess,
 		saveNodeScope,
 		type AccessRule,
 		type Project
 	} from '$lib/projects';
+	import { projectMatcher } from '$lib/projectsearch';
+	import { projectRest } from '$lib/projectroute';
+	import { fetchLevel } from '$lib/tree';
 
 	let projects = $state<Project[]>([]);
 	let loaded = $state(false);
@@ -31,6 +36,19 @@
 	let busy = $state(false);
 
 	const byPath = $derived(new Map(projects.map((p) => [p.path, p])));
+	// Jobs in a project and below it, from the tree; absent until it loads.
+	let jobCounts = $state<Record<string, number>>({});
+	let query = $state('');
+	const matcher = $derived(projectMatcher(query));
+	const visible = $derived(
+		projects.filter((p) => matcher.test(p.path) || matcher.test(p.description ?? ''))
+	);
+	const childCount = $derived(
+		projects.reduce(
+			(m, p) => (p.parent_path ? m.set(p.parent_path, (m.get(p.parent_path) ?? 0) + 1) : m),
+			new Map<string, number>()
+		)
+	);
 	// Where a new project can go: under a project the caller administers, or at
 	// the top for an instance admin.
 	const parents = $derived(projects.filter((p) => atLeast(p.my_role, 'admin')));
@@ -39,6 +57,8 @@
 	let newParent = $state('');
 	let newName = $state('');
 	let newDescription = $state('');
+	let createOpen = $state(false);
+	let createError = $state<string | null>(null);
 
 	// The project whose rules and node scope are being edited.
 	let editing = $state<string | null>(null);
@@ -58,10 +78,25 @@
 		try {
 			projects = await fetchProjects();
 			error = null;
+			void loadJobCounts();
 		} catch (e) {
 			error = problemMessage(e);
 		} finally {
 			loaded = true;
+		}
+	}
+
+	// shortcut: one tree call per parent, first page (100) of each; upgrade to a counts field
+	// on the project list when a level outgrows that.
+	async function loadJobCounts() {
+		const parents = new Set(['', ...projects.map((p) => p.parent_path ?? '').filter(Boolean)]);
+		const counts: Record<string, number> = {};
+		try {
+			const levels = await Promise.all([...parents].map((p) => fetchLevel(p)));
+			for (const l of levels) for (const t of l.projects) counts[t.path] = t.jobs ?? 0;
+			jobCounts = counts;
+		} catch {
+			// the counts are decoration: the table stands without them
 		}
 	}
 
@@ -79,14 +114,23 @@
 		}
 	}
 
-	function create() {
+	async function create() {
 		const name = newName.trim();
 		if (!name) return;
 		const path = newParent ? `${newParent}/${name}` : name;
-		return act(async () => {
+		busy = true;
+		createError = null;
+		try {
 			await createProject(path, newDescription.trim());
 			newName = newDescription = '';
-		});
+			createOpen = false;
+			await load();
+		} catch (e) {
+			// The refusal stays in the dialog, beside the field that caused it.
+			createError = problemMessage(e);
+		} finally {
+			busy = false;
+		}
 	}
 
 	function remove(path: string) {
@@ -163,7 +207,18 @@
 </script>
 
 <main class="mx-auto max-w-6xl space-y-6 px-4 py-6">
-	<h1 class="text-2xl font-semibold">Projects</h1>
+	<div class="flex items-center justify-between">
+		<h1 class="text-2xl font-semibold">Projects</h1>
+		{#if loaded && (parents.length > 0 || canCreateRoot)}
+			<Button
+				data-testid="create-project"
+				onclick={() => {
+					createError = null;
+					createOpen = true;
+				}}>New project</Button
+			>
+		{/if}
+	</div>
 
 	{#if error}
 		<Alert.Root variant="destructive" data-testid="project-error">
@@ -178,85 +233,151 @@
 			You do not have access to any project yet.
 		</p>
 	{:else}
-		<ul class="divide-y rounded-lg border" data-testid="project-tree">
-			{#each projects as p (p.path)}
-				<li
-					class="flex flex-wrap items-center gap-3 px-3 py-2"
-					style:padding-left="{0.75 + depth(p.path) * 1.5}rem"
-					data-testid="project-row-{p.path}"
-				>
-					<span class="font-medium">{leaf(p.path)}</span>
-					<Badge variant="secondary" data-testid="role-{p.path}">{p.my_role ?? 'none'}</Badge>
-					{#if p.managed_by !== 'ui'}
-						<Badge variant="outline" data-testid="managed-{p.path}">managed by {p.managed_by}</Badge
+		<Input
+			class="max-w-sm"
+			placeholder="Search projects, or /regex/"
+			aria-label="Search projects"
+			data-testid="project-search"
+			bind:value={query}
+		/>
+		{#if matcher.error}
+			<p class="text-sm text-destructive">{matcher.error}</p>
+		{/if}
+		<div class="rounded-lg border">
+			<Table.Root data-testid="project-tree">
+				<Table.Header>
+					<Table.Row>
+						<Table.Head>Project</Table.Head>
+						<Table.Head>Description</Table.Head>
+						<Table.Head class="text-right">Child projects</Table.Head>
+						<Table.Head class="text-right">Jobs</Table.Head>
+						<Table.Head>Your role</Table.Head>
+						<Table.Head class="text-right"><span class="sr-only">Actions</span></Table.Head>
+					</Table.Row>
+				</Table.Header>
+				<Table.Body>
+					{#each visible as p (p.path)}
+						<Table.Row
+							class="cursor-pointer"
+							data-testid="project-row-{p.path}"
+							onclick={(e: MouseEvent) => {
+								// A click on a button or link keeps its own meaning.
+								if ((e.target as HTMLElement).closest('a,button')) return;
+								goto(resolve('/projects/[...path]', { path: projectRest(p.path) }));
+							}}
 						>
-					{/if}
-					{#if p.description}
-						<span class="text-sm text-muted-foreground">{p.description}</span>
-					{/if}
-					<span class="ml-auto flex gap-2">
-						{#if atLeast(p.my_role, 'admin')}
-							<Button
-								size="sm"
-								variant="outline"
-								data-testid="edit-{p.path}"
-								onclick={() => edit(p.path)}
-								>{p.managed_by === 'ui' ? 'Rules and scope' : 'View rules and scope'}</Button
+							<Table.Cell>
+								<a
+									class="font-medium hover:underline"
+									href={resolve('/projects/[...path]', { path: projectRest(p.path) })}
+									data-testid="project-link-{p.path}">{p.path}</a
+								>
+								{#if p.managed_by !== 'ui'}
+									<Badge variant="outline" data-testid="managed-{p.path}"
+										>managed by {p.managed_by}</Badge
+									>
+								{/if}
+							</Table.Cell>
+							<Table.Cell class="text-muted-foreground">{p.description ?? ''}</Table.Cell>
+							<Table.Cell class="text-right" data-testid="children-{p.path}"
+								>{childCount.get(p.path) ?? 0}</Table.Cell
 							>
-						{/if}
-						{#if canManage(p.path, byPath)}
-							<Button
-								size="sm"
-								variant="outline"
-								disabled={busy || p.managed_by !== 'ui'}
-								title={p.managed_by !== 'ui' ? 'managed by ' + p.managed_by : undefined}
-								data-testid="delete-{p.path}"
-								onclick={() => remove(p.path)}>Delete</Button
+							<Table.Cell class="text-right" data-testid="jobs-{p.path}"
+								>{jobCounts[p.path] ?? '–'}</Table.Cell
 							>
-						{/if}
-					</span>
-				</li>
-			{/each}
-		</ul>
+							<Table.Cell>
+								<Badge variant="secondary" data-testid="role-{p.path}">{p.my_role ?? 'none'}</Badge>
+							</Table.Cell>
+							<Table.Cell class="text-right">
+								<span class="inline-flex gap-2">
+									{#if atLeast(p.my_role, 'admin')}
+										<Button
+											size="sm"
+											variant="outline"
+											data-testid="edit-{p.path}"
+											onclick={() => edit(p.path)}
+											>{p.managed_by === 'ui' ? 'Rules and scope' : 'View rules and scope'}</Button
+										>
+									{/if}
+									{#if canManage(p.path, byPath)}
+										<Button
+											size="sm"
+											variant="outline"
+											disabled={busy || p.managed_by !== 'ui'}
+											title={p.managed_by !== 'ui' ? 'managed by ' + p.managed_by : undefined}
+											data-testid="delete-{p.path}"
+											onclick={() => remove(p.path)}>Delete</Button
+										>
+									{/if}
+								</span>
+							</Table.Cell>
+						</Table.Row>
+					{:else}
+						<Table.Row>
+							<Table.Cell colspan={6} class="text-muted-foreground" data-testid="no-match"
+								>No project matches.</Table.Cell
+							>
+						</Table.Row>
+					{/each}
+				</Table.Body>
+			</Table.Root>
+		</div>
 	{/if}
 
-	{#if loaded && (parents.length > 0 || canCreateRoot)}
-		<form
-			class="max-w-xl space-y-3 rounded-lg border p-4"
-			data-testid="create-project"
-			onsubmit={(e) => {
-				e.preventDefault();
-				create();
-			}}
-		>
-			<h2 class="font-medium">New project</h2>
-			<div class="grid gap-2">
-				<Label>Parent</Label>
-				<Select.Root type="single" value={newParent} onValueChange={(v) => (newParent = v)}>
-					<Select.Trigger data-testid="create-parent" class="w-64">
-						{newParent || (canCreateRoot ? '(top level)' : 'choose a parent')}
-					</Select.Trigger>
-					<Select.Content>
-						{#if canCreateRoot}
-							<Select.Item value="">(top level)</Select.Item>
-						{/if}
-						{#each parents as p (p.path)}
-							<Select.Item value={p.path}>{p.path}</Select.Item>
-						{/each}
-					</Select.Content>
-				</Select.Root>
-			</div>
-			<div class="grid gap-2">
-				<Label for="create-name">Name</Label>
-				<Input id="create-name" data-testid="create-name" bind:value={newName} required />
-			</div>
-			<div class="grid gap-2">
-				<Label for="create-description">Description</Label>
-				<Input id="create-description" bind:value={newDescription} />
-			</div>
-			<Button type="submit" disabled={busy} data-testid="create-submit">Create</Button>
-		</form>
-	{/if}
+	<Dialog.Root
+		bind:open={createOpen}
+		onOpenChange={(o) => {
+			if (!o) newName = newDescription = '';
+			createError = null;
+		}}
+	>
+		<Dialog.Content data-testid="create-dialog">
+			<Dialog.Header>
+				<Dialog.Title>New project</Dialog.Title>
+			</Dialog.Header>
+			<form
+				class="space-y-3"
+				data-testid="create-form"
+				onsubmit={(e) => {
+					e.preventDefault();
+					create();
+				}}
+			>
+				<div class="grid gap-2">
+					<Label>Parent</Label>
+					<Select.Root type="single" value={newParent} onValueChange={(v) => (newParent = v)}>
+						<Select.Trigger data-testid="create-parent" class="w-64">
+							{newParent || (canCreateRoot ? '(top level)' : 'choose a parent')}
+						</Select.Trigger>
+						<Select.Content>
+							{#if canCreateRoot}
+								<Select.Item value="">(top level)</Select.Item>
+							{/if}
+							{#each parents as p (p.path)}
+								<Select.Item value={p.path}>{p.path}</Select.Item>
+							{/each}
+						</Select.Content>
+					</Select.Root>
+				</div>
+				<div class="grid gap-2">
+					<Label for="create-name">Name</Label>
+					<Input id="create-name" data-testid="create-name" bind:value={newName} required />
+				</div>
+				<div class="grid gap-2">
+					<Label for="create-description">Description</Label>
+					<Input id="create-description" bind:value={newDescription} />
+				</div>
+				{#if createError}
+					<Alert.Root variant="destructive" data-testid="create-error">
+						<Alert.Description>{createError}</Alert.Description>
+					</Alert.Root>
+				{/if}
+				<Dialog.Footer>
+					<Button type="submit" disabled={busy} data-testid="create-submit">Create</Button>
+				</Dialog.Footer>
+			</form>
+		</Dialog.Content>
+	</Dialog.Root>
 
 	{#if editing}
 		<section class="space-y-6 rounded-lg border p-4" data-testid="project-editor">

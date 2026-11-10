@@ -27,6 +27,7 @@ test('an instance admin builds the tree and writes access rules', async ({ brows
 
 	async function create(name: string, parent?: string) {
 		// The parent choice stays after a create, so always choose it.
+		await page.getByTestId('create-project').click();
 		await page.getByTestId('create-parent').click();
 		await page.getByRole('option', { name: parent ?? '(top level)', exact: true }).click();
 		await page.getByTestId('create-name').fill(name);
@@ -118,4 +119,42 @@ test('logging out ends the session', async ({ browser }) => {
 	await expect(page.getByTestId('user-name')).toHaveText('bob@example.org');
 	const me = await (await page.request.get('/api/v1/me')).json();
 	expect(me.sub).toBe('bob-sub');
+});
+
+test('/projects opens a project from its row and creates one in a modal', async ({ browser }) => {
+	const page = await as(browser, 'alice-sub');
+	await page.goto('/projects');
+	await page.getByTestId('project-link-team').click();
+	await expect(page).toHaveURL(/\/projects\/team$/);
+
+	await page.goto('/projects');
+	// A click on the row, off the link, opens the project too.
+	await page.getByTestId('project-row-team').getByTestId('children-team').click();
+	await expect(page).toHaveURL(/\/projects\/team$/);
+
+	await page.goto('/projects');
+	await page.getByTestId('create-project').click();
+	await page.getByTestId('create-parent').click();
+	await page.getByRole('option', { name: 'team', exact: true }).click();
+	await page.getByTestId('create-name').fill('new');
+	await page.getByTestId('create-submit').click();
+	await expect(page.getByTestId('create-dialog')).toHaveCount(0); // closed
+	await expect(page.getByTestId('project-row-team/new')).toBeVisible();
+
+	// A bad path is refused inside the modal, which stays open.
+	await page.getByTestId('create-project').click();
+	await page.getByTestId('create-parent').click();
+	await page.getByRole('option', { name: '(top level)', exact: true }).click();
+	await page.getByTestId('create-name').fill('Bad Name!');
+	await page.getByTestId('create-submit').click();
+	await expect(page.getByTestId('create-error')).toBeVisible();
+	await expect(page.getByTestId('create-dialog')).toBeVisible();
+	await page.keyboard.press('Escape');
+
+	await page.getByTestId('project-search').fill('team/new');
+	await expect(page.getByTestId('project-row-ops')).toHaveCount(0);
+	await page.getByTestId('project-search').fill('');
+
+	await page.getByTestId('delete-team/new').click();
+	await expect(page.getByTestId('project-row-team/new')).toHaveCount(0);
 });
