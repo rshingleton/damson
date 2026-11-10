@@ -77,6 +77,9 @@ Actions
    * - ``project.access_rules.update``, ``job.access_rules.update``
      - ``project``, ``job``
      - see :doc:`access-rules`
+   * - ``node_set.create``, ``node_set.update``, ``node_set.delete``
+     - ``node_set``
+     - details ``ref`` and the changed field names, never the filter (ADR-0078)
    * - ``schedule.create``, ``schedule.update``, ``schedule.delete``
      - ``schedule``
      - see :doc:`schedules`

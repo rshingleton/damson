@@ -77,11 +77,18 @@ compiles, or a reference points at a set that does not exist, the set matches
 nothing. Both fail closed, and the log names the project and set, never the
 expression or node data. A project holds at most 100 sets.
 
+**Implementation note (R4).** The boolean result type of a filter is not checked
+at compile time, because the environment types ``node`` as ``dyn``. A filter that
+returns a non-boolean matches no node, as ``node_scope`` does. The migration
+00025 holds only ``node_sets``; the ``runs``, ``schedules`` and ``webhooks``
+columns arrive with R5.
+
 **Caching.** ``inventory.ProjectScope`` loads the sets of the project chain in
 the same 10-second fill as the chain and caches the compiled programs. A set
 edit applies everywhere within about 10 seconds; the controller that took the
-write clears its entries for the subtree. ``NodeAccess`` is cached with the role
-in the grant cache (60 seconds, keyed ``session|project|job``, cleared on a
+write clears its chain cache. R4 computes ``NodeAccess`` on every request from
+the stored rules, so a rule edit applies at once; if that proves costly it may
+join the grant cache (60 seconds, keyed ``session|project|job``, cleared on a
 local rule write). Listing nodes costs one pass over the inventory, evaluating
 the ceiling and at most the caller's sets for each node.
 
@@ -177,8 +184,10 @@ An update is ``UPDATE node_sets SET ..., version = version + 1 WHERE id = $1 AND
 version = $2``; zero rows is ``ErrNotFound`` or ``ErrStale``. A delete is a
 compare-and-swap on the version, with the reference check in the same
 transaction. A rule write and a set delete can still race and leave a dangling
-reference. That is accepted, because a dangling reference grants nothing (fail
-closed). Deleting a project, which already requires it to have no children and
+reference. That is accepted: it grants nothing (fail closed) until a set of the
+same name is created again, which then takes the reference up. The delete check
+reads the rules of archived jobs too, so a restored job cannot find its rule
+pointing at a recreated set. Deleting a project, which already requires it to have no children and
 no jobs, deletes its sets in the same transaction and writes one
 ``node_set.delete`` event for each. JSON stays in Go and the SQL is in
 ``queries/shared``.

@@ -140,6 +140,22 @@ Go test fails when ``web/openapi.json`` differs from the live document.
        response ``{"node_scope","version"}``. ``admin`` needed; ``409`` if
        ``if_version`` is stale; ``422`` at ``body.node_scope`` if it does not
        compile (:ref:`reference-project-node-scope`).
+   * - ``GET /api/v1/projects/{path}/nodes``
+     - Nodes the caller may see in the project (``viewer``): within the node
+       scope and, when the caller's rules carry node sets, within those sets.
+       Cursor-paged; ``{"access": "all"|"sets", "items", "next_cursor"}``. Items
+       hold ``id``, ``name``, ``address``, ``tags``, ``attributes``, ``pool``,
+       ``os``, ``transport``, ``enabled`` and ``visible_through``, never a
+       credential, host key or port (ADR-0078).
+   * - ``GET``/``POST /api/v1/projects/{path}/node-sets``, ``GET``/``PUT``/``DELETE /api/v1/projects/{path}/node-sets/{name}``
+     - Node sets (named CEL filters over nodes): list (own and ancestors'),
+       create ``{"name","description","filter"}``, update ``{"description",
+       "filter","if_version"}``, delete. ``admin`` needed, strict. ``409`` for a
+       taken name, a stale version, or a delete while a rule or job references
+       the set; ``422`` at ``body.filter`` if it does not compile.
+   * - ``POST /api/v1/projects/{path}/node-sets/preview``
+     - ``{"filter"}``; at most 200 nodes within the node scope that match, plus
+       ``truncated``. ``admin`` needed; not audited.
    * - ``POST /api/v1/jobs/{id}/versions``
      - ``{"spec", "expected_version"?}``. Appends an immutable version. It is a
        compare-and-swap on ``current_version``: a stale ``expected_version``

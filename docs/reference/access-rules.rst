@@ -123,7 +123,8 @@ Audit
 
 ``project.access_rules.update`` and ``job.access_rules.update`` (target types
 ``project`` and ``job``) record the project as ``project_path`` and details
-``path`` or ``job_id``, ``count`` and ``roles``, never the expressions. The
+``path`` or ``job_id``, ``count``, ``roles`` and ``node_sets`` (the sorted
+references), never the expressions. The
 actor is ``user:<sub>``, ``sa:<id>`` or ``admin-token:<hash prefix>``.
 
 Explaining a role
