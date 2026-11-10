@@ -61,7 +61,8 @@ Actions
    * - ``run.trigger``
      - ``run``
      - ``job_id``, ``job_version_id``, ``trigger``, ``schedule_id`` or
-       ``webhook_id``; never options
+       ``webhook_id``, and ``node_sets`` (references; absent when the run may
+       use all nodes); never options
    * - ``run.cancel``
      - ``run``
      - ``job_id``

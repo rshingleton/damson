@@ -52,6 +52,13 @@ The list is cursor-paged (``next_cursor``). ``PATCH`` changes any of ``name``,
 ``misfire``. Send ``if_version`` to fail with ``409`` if someone else changed
 the schedule first.
 
+A schedule carries node sets (ADR-0078): the references of the node sets the
+creator may use for the job, returned as ``node_sets``. It is absent when the
+creator had every node within the project's node scope. A ``PATCH`` that changes
+``name``, ``cron``, ``timezone``, ``options`` or ``misfire`` replaces them with
+the editor's sets; pausing or resuming (``enabled`` only) keeps them. Every fire
+gives the sets to the run, so it targets and dispatches only to those nodes.
+
 .. code-block:: shell
 
    curl -sX PATCH http://localhost:8080/api/v1/schedules/<id> \
@@ -132,7 +139,7 @@ Audit
 Creating, changing and deleting a schedule write the audit events
 ``schedule.create``, ``schedule.update`` and ``schedule.delete`` (target type
 ``schedule``; details ``job_id``, ``name``, ``cron``, ``timezone``, ``enabled``,
-``misfire``, ``version``; never the options). Every fire writes one ``run.trigger``
+``misfire``, ``version`` and ``node_sets`` when restricted; never the options). Every fire writes one ``run.trigger``
 event (actor ``system:scheduler``; details ``job_id``, ``job_version_id``,
-``trigger``, ``schedule_id``; never the options) in the transaction that creates
+``trigger``, ``schedule_id`` and ``node_sets`` when restricted; never the options) in the transaction that creates
 the run. See :ref:`reference-audit-api`.

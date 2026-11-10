@@ -83,6 +83,16 @@ returns a non-boolean matches no node, as ``node_scope`` does. The migration
 00025 holds only ``node_sets``; the ``runs``, ``schedules`` and ``webhooks``
 columns arrive with R5.
 
+**Implementation note (R5).** The sets of a run, a schedule and a webhook are
+stored in the side tables ``run_node_sets``, ``schedule_node_sets`` and
+``webhook_node_sets`` (migration 00026), not in nullable ``node_sets`` columns,
+so the run, schedule and webhook queries stay unchanged. A table holds a JSON
+array of references. No row means every node within the project's ``node_scope``
+(the ``NULL`` of the text above); an empty array means no node. The migrations
+are 00025 (``node_sets``) and 00026 (these tables); the access rules need none.
+Webhook create audit details do not carry ``node_sets`` yet, and apply cannot
+express node sets until R7, so it refuses to rewrite rules that carry them.
+
 **Caching.** ``inventory.ProjectScope`` loads the sets of the project chain in
 the same 10-second fill as the chain and caches the compiled programs. A set
 edit applies everywhere within about 10 seconds; the controller that took the

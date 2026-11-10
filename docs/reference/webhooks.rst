@@ -146,4 +146,6 @@ Creating and revoking a webhook write the audit events ``webhook.create`` and
 ``webhook.revoke`` (target type ``webhook``; details ``job_id``, ``name``,
 ``has_mapping``; never the token, its hash or the options). A call that starts a
 run writes ``run.trigger`` (actor ``webhook:<webhook id>``; details include
-``webhook_id``; never the options). See :ref:`reference-audit-api`.
+``webhook_id``; never the options). A webhook stores the creator's node sets
+(ADR-0078) and passes them to each run it starts; only admins create webhooks,
+so today it has every node within the project's node scope. See :ref:`reference-audit-api`.
