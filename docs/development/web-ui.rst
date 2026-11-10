@@ -131,7 +131,7 @@ own container, so a page never scrolls sideways.
    the runs filtered by status and job, with "More" paging. Runs come from
    ``GET /runs?project=``, which covers the project and those below it and
    answers 404 for a project the caller has no role on, so a hidden project
-   reads as missing on every tab. ``-/schedules`` and ``-/webhooks`` list every schedule, or every webhook, of the
+   reads as missing on every tab. ``-/nodes`` lists the nodes the caller may see in the project (``GET /projects/{path}/nodes``, ADR-0078, 100 per page with "Load more"): name, address, tags, pool, OS, enabled and the node sets that grant each ("all" when the caller's access rules carry no sets). A filter box matches name, address, pool, OS, transport and tags by plain text or ``/regex/``. The tab needs a role on the project; with none it is absent and its URL is the not-found view. Read-only: node sets are edited in the Access tab (R7). ``-/schedules`` and ``-/webhooks`` list every schedule, or every webhook, of the
    jobs of the project and those below it (``GET /schedules?project=``,
    ``GET /webhooks?project=``), with the job, state and next run or last use;
    everyone with a role reads them, editors pause, resume and delete schedules,
