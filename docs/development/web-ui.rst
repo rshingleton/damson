@@ -175,7 +175,7 @@ own container, so a page never scrolls sideways.
    found is shown in place, and says not found if the caller may not read it.
 
 ``/projects``
-   Project administration: the tree indented by depth (see :ref:`web-ui-login`).
+   Project management (see :ref:`web-ui-login`): a table of the projects the caller holds a role on (path, description, child projects, jobs below, role). A row opens the project; a search box filters by a plain text or a ``/regex/``. **New project** opens a modal (parent, name, description) that shows a server refusal inside it. Admins get per-row **Delete** and **Rules and scope** (the access-rule and node-scope editor, below the table).
 
 ``/admin/secrets``
    Secret metadata and management (see :ref:`web-ui-secrets`).
