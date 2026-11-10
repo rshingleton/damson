@@ -13,6 +13,7 @@ import (
 type fakeChains struct {
 	projects map[string]string // path to node scope
 	calls    int
+	sets     map[string][]store.NodeSet // by project id
 }
 
 func (f *fakeChains) ListProjectChain(_ context.Context, path string) ([]store.Project, error) {
@@ -20,10 +21,14 @@ func (f *fakeChains) ListProjectChain(_ context.Context, path string) ([]store.P
 	var out []store.Project
 	for p := path; p != ""; p = store.ParentPath(p) {
 		if s, ok := f.projects[p]; ok {
-			out = append([]store.Project{{Path: p, NodeScope: s}}, out...)
+			out = append([]store.Project{{ID: "id-" + p, Path: p, NodeScope: s}}, out...)
 		}
 	}
 	return out, nil
+}
+
+func (f *fakeChains) ListNodeSets(_ context.Context, projectID string) ([]store.NodeSet, error) {
+	return f.sets[projectID], nil
 }
 
 func TestProjectScope(t *testing.T) {
@@ -107,5 +112,56 @@ func TestEvaluationErrorLogHoldsNoNodeData(t *testing.T) {
 	}
 	if strings.Contains(logs.String(), "sekrit-value-abc") {
 		t.Fatalf("node data in the log: %s", logs.String())
+	}
+}
+
+func TestProjectScopeNodeSets(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	chains := &fakeChains{
+		projects: map[string]string{"acme": "", "acme/pay": `'prod' in node.tags`},
+		sets: map[string][]store.NodeSet{
+			"id-acme": {
+				{ProjectPath: "acme", Name: "web", Filter: `node.name.matches('^web')`},
+				{ProjectPath: "acme", Name: "broken", Filter: `((`},
+				{ProjectPath: "acme", Name: "typed", Filter: `node.name`},
+			},
+			"id-acme/pay": {{ProjectPath: "acme/pay", Name: "db", Filter: `'db' in node.tags`}},
+		},
+	}
+	sc, err := NewProjectScope(chains, func() time.Time { return now }, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	web := store.Node{Name: "web-1", Tags: []string{"prod"}}
+	db := store.Node{Name: "d1", Tags: []string{"prod", "db"}}
+	devWeb := store.Node{Name: "web-2", Tags: []string{"dev"}}
+	ctx := context.Background()
+	tests := []struct {
+		name    string
+		project string
+		all     bool
+		sets    []string
+		node    store.Node
+		want    bool
+	}{
+		{"a set of the project's ancestor matches", "acme/pay", false, []string{"acme:web"}, web, true},
+		{"a set of the project itself matches", "acme/pay", false, []string{"acme/pay:db"}, db, true},
+		{"no set matches", "acme/pay", false, []string{"acme:web"}, db, false},
+		{"one of several", "acme/pay", false, []string{"acme:web", "acme/pay:db"}, db, true},
+		{"the ceiling still applies", "acme/pay", false, []string{"acme:web"}, devWeb, false},
+		{"all skips the sets but not the ceiling", "acme/pay", true, nil, devWeb, false},
+		{"all within the ceiling", "acme/pay", true, nil, db, true},
+		{"a set that does not compile matches nothing", "acme/pay", false, []string{"acme:broken"}, web, false},
+		{"a set that does not evaluate to a bool matches nothing", "acme/pay", false, []string{"acme:typed"}, web, false},
+		{"a set that does not exist matches nothing", "acme/pay", false, []string{"acme:gone"}, web, false},
+		{"a set outside the chain matches nothing", "acme", false, []string{"acme/pay:db"}, db, false},
+		{"no sets and not all", "acme/pay", false, nil, web, false},
+		{"a broken set does not hide a good one", "acme/pay", false, []string{"acme:broken", "acme:web"}, web, true},
+	}
+	for _, tt := range tests {
+		got, err := sc.Visible(ctx, tt.project, tt.all, tt.sets, tt.node)
+		if err != nil || got != tt.want {
+			t.Errorf("%s: Visible = %v, %v; want %v", tt.name, got, err, tt.want)
+		}
 	}
 }

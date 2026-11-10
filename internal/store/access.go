@@ -27,6 +27,9 @@ const (
 type AccessRule struct {
 	Role string `json:"role"`
 	Rule string `json:"rule"`
+	// NodeSets are references ("<project>:<name>", ADR-0078) to the node sets
+	// the rule grants; none means every node within the project's node scope.
+	NodeSets []string `json:"node_sets,omitempty"`
 }
 
 // EncodeAccessRules checks the shape of a rule list (count, size, roles up to
@@ -41,6 +44,15 @@ func EncodeAccessRules(rules []AccessRule, maxRole string) (json.RawMessage, err
 			return nil, fmt.Errorf("access rule %d: role %q is not allowed here: %w", i, r.Role, ErrInvalid)
 		case r.Rule == "" || len(r.Rule) > MaxAccessRuleBytes:
 			return nil, fmt.Errorf("access rule %d: the rule must be 1 to %d bytes: %w", i, MaxAccessRuleBytes, ErrInvalid)
+		case len(r.NodeSets) > MaxNodeSetRefsPerRule:
+			return nil, fmt.Errorf("access rule %d: at most %d node sets: %w", i, MaxNodeSetRefsPerRule, ErrInvalid)
+		case len(r.NodeSets) > 0 && r.Role == RoleAdmin:
+			return nil, fmt.Errorf("access rule %d: a rule that grants admin cannot carry node sets: %w", i, ErrInvalid)
+		}
+		for _, ref := range r.NodeSets {
+			if _, _, ok := SplitNodeSetRef(ref); !ok {
+				return nil, fmt.Errorf("access rule %d: %q is not a node set reference: %w", i, ref, ErrInvalid)
+			}
 		}
 	}
 	if rules == nil {
@@ -84,6 +96,8 @@ type AccessAuditDetails struct {
 	JobID string   `json:"job_id,omitempty"`
 	Count int      `json:"count"`
 	Roles []string `json:"roles,omitempty"`
+	// NodeSets are the sorted distinct references the rules name (ADR-0078).
+	NodeSets []string `json:"node_sets,omitempty"`
 }
 
 // NewAccessEvent builds the audit event of an access rule write.
@@ -96,7 +110,7 @@ func NewAccessEvent(ctx context.Context, action, targetType, target, project str
 	if err != nil {
 		return AuditEvent{}, err
 	}
-	d := AccessAuditDetails{Path: project, JobID: jobID, Count: len(rules)}
+	d := AccessAuditDetails{Path: project, JobID: jobID, Count: len(rules), NodeSets: DistinctNodeSets(rules)}
 	for _, r := range rules {
 		d.Roles = append(d.Roles, r.Role)
 	}

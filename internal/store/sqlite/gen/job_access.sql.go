@@ -41,6 +41,51 @@ func (q *Queries) InsertJobAccess(ctx context.Context, arg InsertJobAccessParams
 	return err
 }
 
+const listAllJobRuleRows = `-- name: ListAllJobRuleRows :many
+SELECT ja.job_id, j.name, j.project_id, ja.rules
+FROM job_access ja JOIN jobs j ON j.id = ja.job_id
+WHERE ja.rules <> '[]'
+ORDER BY ja.job_id
+LIMIT ?1
+`
+
+type ListAllJobRuleRowsRow struct {
+	JobID     string
+	Name      string
+	ProjectID string
+	Rules     string
+}
+
+// Like ListJobRuleRows but archived jobs too: a restored job must not find its
+// rule pointing at a node set that was deleted and made again.
+func (q *Queries) ListAllJobRuleRows(ctx context.Context, rowLimit int64) ([]ListAllJobRuleRowsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listAllJobRuleRows, rowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListAllJobRuleRowsRow
+	for rows.Next() {
+		var i ListAllJobRuleRowsRow
+		if err := rows.Scan(
+			&i.JobID,
+			&i.Name,
+			&i.ProjectID,
+			&i.Rules,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listJobRuleRows = `-- name: ListJobRuleRows :many
 SELECT ja.job_id, j.name, j.project_id, ja.rules
 FROM job_access ja JOIN jobs j ON j.id = ja.job_id

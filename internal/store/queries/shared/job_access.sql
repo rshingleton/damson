@@ -17,3 +17,12 @@ FROM job_access ja JOIN jobs j ON j.id = ja.job_id
 WHERE ja.rules <> '[]' AND j.archived_at IS NULL
 ORDER BY ja.job_id
 LIMIT sqlc.arg(row_limit);
+
+-- name: ListAllJobRuleRows :many
+-- Like ListJobRuleRows but archived jobs too: a restored job must not find its
+-- rule pointing at a node set that was deleted and made again.
+SELECT ja.job_id, j.name, j.project_id, ja.rules
+FROM job_access ja JOIN jobs j ON j.id = ja.job_id
+WHERE ja.rules <> '[]'
+ORDER BY ja.job_id
+LIMIT sqlc.arg(row_limit);

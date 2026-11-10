@@ -67,6 +67,7 @@ type Store interface {
 	WebhookStore
 	ServiceAccountStore
 	NodeStore
+	NodeSetStore
 	TxRunner
 
 	// GetSetting returns ErrNotFound if the key is absent.

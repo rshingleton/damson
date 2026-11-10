@@ -2,6 +2,7 @@ package apply
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -143,6 +144,12 @@ func (p *planner) project(pr Project, file string) {
 		p.issue(pr.File, pr.Path, file, "project %q is managed by %s", pr.Path, cur.ManagedBy)
 		return
 	}
+	if len(store.DistinctNodeSets(cur.AccessRules)) > 0 {
+		// project.json cannot express node sets yet (ADR-0078, slice R7); writing its
+		// rules back would drop them and widen access.
+		p.issue(pr.File, pr.Path, file, "project %q has access rules with node sets, which project.json cannot express yet; remove the sets first", pr.Path)
+		return
+	}
 	var fields []string
 	op := store.ApplyOp{
 		Kind: store.OpProjectUpdate, Source: p.o.Source, ID: cur.ID, ExpectVersion: cur.Version, ExpectManaged: cur.ManagedBy,
@@ -170,7 +177,7 @@ func sameRules(a, b []store.AccessRule) bool {
 		return false
 	}
 	for i := range a {
-		if a[i] != b[i] {
+		if a[i].Role != b[i].Role || a[i].Rule != b[i].Rule || !slices.Equal(a[i].NodeSets, b[i].NodeSets) {
 			return false
 		}
 	}

@@ -171,6 +171,17 @@ type Node struct {
 	UpdatedAt         string
 }
 
+type NodeSet struct {
+	ID          string
+	ProjectID   string
+	Name        string
+	Description string
+	Filter      string
+	Version     int64
+	CreatedAt   string
+	UpdatedAt   string
+}
+
 type OidcLogin struct {
 	StateHash   string
 	BindingHash string

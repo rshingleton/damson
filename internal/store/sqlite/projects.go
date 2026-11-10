@@ -202,6 +202,22 @@ func (s *Store) DeleteProject(ctx context.Context, id string, now time.Time) err
 				return &store.ProjectInUseError{Path: cur.Path, What: c.what}
 			}
 		}
+		sets, err := q.ListNodeSetsByProject(ctx, id)
+		if err != nil {
+			return fmt.Errorf("listing node sets of project: %w", err)
+		}
+		for _, ns := range sets {
+			if _, err := q.DeleteNodeSetCAS(ctx, gen.DeleteNodeSetCASParams{ID: ns.ID, ExpectedVersion: ns.Version}); err != nil {
+				return fmt.Errorf("deleting node set of project: %w", err)
+			}
+			ev, err := store.NewNodeSetEvent(ctx, store.ActionNodeSetDelete, ns.ID, cur.Path, store.NodeSetAuditDetails{Ref: store.NodeSetRef(cur.Path, ns.Name)}, now)
+			if err != nil {
+				return err
+			}
+			if err := tx.AppendAuditEvent(ctx, ev); err != nil {
+				return err
+			}
+		}
 		if n, err := q.DeleteProject(ctx, id); err != nil {
 			return fmt.Errorf("deleting project: %w", err)
 		} else if n == 0 {

@@ -22,6 +22,8 @@ const maxScopeCache = 4096
 // ChainReader reads a project and its ancestors, root first.
 type ChainReader interface {
 	ListProjectChain(ctx context.Context, path string) ([]store.Project, error)
+	// ListNodeSets returns a project's node sets (ADR-0078).
+	ListNodeSets(ctx context.Context, projectID string) ([]store.NodeSet, error)
 }
 
 // ProjectScope is the Scope of the project tree (ARCHITECTURE 12.1): a node is
@@ -44,7 +46,10 @@ type ProjectScope struct {
 type cachedChain struct {
 	programs []*expr.Program
 	broken   bool
-	exp      time.Time
+	// sets are the compiled node sets of the chain's projects, by reference. A
+	// set that does not compile is absent, so it matches no node.
+	sets map[string]*expr.Program
+	exp  time.Time
 }
 
 // NewProjectScope returns a Scope over the project tree. A nil clock uses
@@ -78,8 +83,20 @@ func (s *ProjectScope) chain(ctx context.Context, project string) (cachedChain, 
 	if err != nil {
 		return cachedChain{}, fmt.Errorf("reading the project scope: %w", err)
 	}
-	c = cachedChain{exp: now.Add(scopeTTL)}
+	c = cachedChain{exp: now.Add(scopeTTL), sets: map[string]*expr.Program{}}
 	for _, p := range rows {
+		sets, err := s.chains.ListNodeSets(ctx, p.ID)
+		if err != nil {
+			return cachedChain{}, fmt.Errorf("reading node sets: %w", err)
+		}
+		for _, ns := range sets {
+			prog, err := s.env.CompileRule(ns.Filter)
+			if err != nil {
+				s.log.Warn("a node set does not compile; it matches no node", "project", p.Path, "set", ns.Name)
+				continue
+			}
+			c.sets[ns.Ref()] = prog
+		}
 		if p.NodeScope == "" {
 			continue
 		}
@@ -125,4 +142,55 @@ func (s *ProjectScope) Allows(ctx context.Context, project string, n store.Node)
 		}
 	}
 	return true, nil
+}
+
+// InSets reports whether n matches at least one of the node sets refs, taken
+// from the sets of the project and its ancestors. A reference to a set that does
+// not exist there, does not compile or does not evaluate for n matches nothing
+// (fail closed); the other references still count.
+func (s *ProjectScope) InSets(ctx context.Context, project string, refs []string, n store.Node) (bool, error) {
+	if len(refs) == 0 {
+		return false, nil
+	}
+	c, err := s.chain(ctx, project)
+	if err != nil {
+		return false, err
+	}
+	m := TargetMap(n)
+	for _, ref := range refs {
+		prog, ok := c.sets[ref]
+		if !ok {
+			continue
+		}
+		ok, err := s.env.EvalNodeScope(prog, m)
+		if err != nil {
+			s.log.Debug("a node set did not evaluate; it does not match", "project", project, "cost_limit", errors.Is(err, expr.ErrCost))
+			continue
+		}
+		if ok {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// Reset forgets every cached chain, so a change made on this controller applies
+// at once; other controllers pick it up within scopeTTL.
+func (s *ProjectScope) Reset() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	clear(s.cache)
+}
+
+// Visible reports whether a caller may see or use n in project: the project's
+// scope allows it and, unless all is set, one of the caller's sets matches it.
+func (s *ProjectScope) Visible(ctx context.Context, project string, all bool, sets []string, n store.Node) (bool, error) {
+	ok, err := s.Allows(ctx, project, n)
+	if err != nil || !ok {
+		return false, err
+	}
+	if all {
+		return true, nil
+	}
+	return s.InSets(ctx, project, sets, n)
 }

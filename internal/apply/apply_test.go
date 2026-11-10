@@ -329,3 +329,20 @@ func TestSourceGrammar(t *testing.T) {
 		}
 	}
 }
+
+func TestPlanRefusesToDropNodeSets(t *testing.T) {
+	b := bundle(t, f("infra/project.json", projectJSON("d")))
+	rules := []store.AccessRule{{Role: "runner", Rule: "true", NodeSets: []string{"infra:web"}}}
+	for _, adopt := range []bool{false, true} {
+		for _, managed := range []string{src, store.SourceUI} {
+			st := state([]store.Project{{ID: "p1", Path: "infra", ManagedBy: managed, Version: 1, Description: "d", AccessRules: rules}})
+			_, issues := Compute(b, st, Options{Source: src, Adopt: adopt}, nil)
+			if managed == store.SourceUI && !adopt {
+				continue // refused for another reason
+			}
+			if len(issues) != 1 || !strings.Contains(issues[0].Message, "node sets") {
+				t.Fatalf("managed=%s adopt=%v: issues = %v; want one about node sets", managed, adopt, issues)
+			}
+		}
+	}
+}

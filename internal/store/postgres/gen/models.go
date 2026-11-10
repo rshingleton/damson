@@ -171,6 +171,17 @@ type Node struct {
 	UpdatedAt         pgtype.Timestamptz
 }
 
+type NodeSet struct {
+	ID          string
+	ProjectID   string
+	Name        string
+	Description string
+	Filter      string
+	Version     int64
+	CreatedAt   pgtype.Timestamptz
+	UpdatedAt   pgtype.Timestamptz
+}
+
 type OidcLogin struct {
 	StateHash   string
 	BindingHash string

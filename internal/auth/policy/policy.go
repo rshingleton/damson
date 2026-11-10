@@ -5,6 +5,7 @@ package policy
 import (
 	"fmt"
 	"log/slog"
+	"sort"
 	"sync"
 
 	"github.com/denyszorinets/damson/internal/expr"
@@ -123,6 +124,54 @@ func (e *Evaluator) Validate(rules []store.AccessRule) []FieldError {
 		if err := e.Check(r.Rule); err != nil {
 			out = append(out, FieldError{Index: i, Message: fmt.Sprint(err)})
 		}
+	}
+	return out
+}
+
+// NodeAccess is what a user may do with nodes (ADR-0078): every node within the
+// project's node scope (All), or only those in one of Sets (references, sorted).
+type NodeAccess struct {
+	All  bool
+	Sets []string
+}
+
+// Nodes evaluates every rule of the lists for id, without the shortcut Explain
+// takes, and returns the node access they give. A matching admin rule or a
+// matching rule with no node sets gives All; otherwise the access is the union
+// of the sets of the matching rules. No matching rule yields no sets (the caller
+// holds no role, so the question does not arise).
+func (e *Evaluator) Nodes(id expr.Identity, lists ...[]store.AccessRule) NodeAccess {
+	seen := map[string]bool{}
+	var out NodeAccess
+	for _, rules := range lists {
+		for i, r := range rules {
+			p, err := e.program(r.Rule)
+			if err != nil {
+				continue // logged by Explain; it grants nothing
+			}
+			ok, err := e.env.EvalRule(p, id)
+			if err != nil {
+				e.log.Debug("access rule did not evaluate; it grants nothing", "role", r.Role, "index", i, "error", err)
+				continue
+			}
+			if !ok {
+				continue
+			}
+			if r.Role == store.RoleAdmin || len(r.NodeSets) == 0 {
+				out.All = true
+				continue
+			}
+			for _, s := range r.NodeSets {
+				if !seen[s] {
+					seen[s] = true
+					out.Sets = append(out.Sets, s)
+				}
+			}
+		}
+	}
+	sort.Strings(out.Sets)
+	if out.All {
+		out.Sets = nil
 	}
 	return out
 }

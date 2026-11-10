@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -112,5 +113,49 @@ func TestExplainNamesTheGrantingRule(t *testing.T) {
 				t.Errorf("Role = %q but Explain says %q: enforcement and explanation differ", r, g.Role)
 			}
 		})
+	}
+}
+
+func TestNodesIsTheUnionOfTheMatchingRulesSets(t *testing.T) {
+	e, err := New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := expr.Identity{Sub: "u", Groups: []string{"ops", "web"}, Claims: map[string]any{"groups": []any{"ops", "web"}}}
+	rules := func(rs ...store.AccessRule) []store.AccessRule { return rs }
+	cases := []struct {
+		name  string
+		lists [][]store.AccessRule
+		want  NodeAccess
+	}{
+		{"one rule one set", [][]store.AccessRule{rules(store.AccessRule{Role: "viewer", Rule: `'ops' in claims.groups`, NodeSets: []string{"a:x"}})}, NodeAccess{Sets: []string{"a:x"}}},
+		{"union over lists, sorted and distinct", [][]store.AccessRule{
+			rules(store.AccessRule{Role: "viewer", Rule: `'web' in claims.groups`, NodeSets: []string{"a:z", "a:x"}}),
+			rules(store.AccessRule{Role: "runner", Rule: `'ops' in claims.groups`, NodeSets: []string{"a:x", "a:y"}}),
+		}, NodeAccess{Sets: []string{"a:x", "a:y", "a:z"}}},
+		{"a matching rule without sets gives all", [][]store.AccessRule{rules(
+			store.AccessRule{Role: "viewer", Rule: `'ops' in claims.groups`, NodeSets: []string{"a:x"}},
+			store.AccessRule{Role: "viewer", Rule: `true`},
+		)}, NodeAccess{All: true}},
+		{"a lower role rule still counts", [][]store.AccessRule{rules(
+			store.AccessRule{Role: "editor", Rule: `'ops' in claims.groups`, NodeSets: []string{"a:x"}},
+			store.AccessRule{Role: "viewer", Rule: `'web' in claims.groups`, NodeSets: []string{"a:y"}},
+		)}, NodeAccess{Sets: []string{"a:x", "a:y"}}},
+		{"an admin rule gives all", [][]store.AccessRule{rules(store.AccessRule{Role: "admin", Rule: `'ops' in claims.groups`})}, NodeAccess{All: true}},
+		{"a rule that does not match adds nothing", [][]store.AccessRule{rules(
+			store.AccessRule{Role: "viewer", Rule: `'ops' in claims.groups`, NodeSets: []string{"a:x"}},
+			store.AccessRule{Role: "viewer", Rule: `'other' in claims.groups`},
+		)}, NodeAccess{Sets: []string{"a:x"}}},
+		{"a rule that does not compile adds nothing", [][]store.AccessRule{rules(
+			store.AccessRule{Role: "viewer", Rule: `claims.(`},
+			store.AccessRule{Role: "viewer", Rule: `'ops' in claims.groups`, NodeSets: []string{"a:x"}},
+		)}, NodeAccess{Sets: []string{"a:x"}}},
+		{"no rules", nil, NodeAccess{}},
+	}
+	for _, c := range cases {
+		got := e.Nodes(id, c.lists...)
+		if got.All != c.want.All || fmt.Sprint(got.Sets) != fmt.Sprint(c.want.Sets) {
+			t.Errorf("%s: Nodes = %+v; want %+v", c.name, got, c.want)
+		}
 	}
 }

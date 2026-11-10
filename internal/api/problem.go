@@ -104,6 +104,10 @@ func problemFor(err error) Problem {
 	if errors.As(err, &inUse) {
 		return Problem{Type: typeConflict, Title: "Conflict", Status: http.StatusConflict, Detail: inUse.Error()}
 	}
+	var setInUse *store.NodeSetInUseError
+	if errors.As(err, &setInUse) {
+		return Problem{Type: typeConflict, Title: "Conflict", Status: http.StatusConflict, Detail: setInUse.Error()}
+	}
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		return Problem{Type: typeNotFound, Title: "Not Found", Status: http.StatusNotFound, Detail: "the requested resource does not exist"}

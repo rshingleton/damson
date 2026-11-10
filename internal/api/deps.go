@@ -9,6 +9,7 @@ import (
 	"github.com/denyszorinets/damson/internal/auth/policy"
 	"github.com/denyszorinets/damson/internal/engine"
 	"github.com/denyszorinets/damson/internal/expr"
+	"github.com/denyszorinets/damson/internal/inventory"
 	"github.com/denyszorinets/damson/internal/store"
 )
 
@@ -95,7 +96,9 @@ type deps struct {
 	grants *grantCache
 	// nodeScopeEnv compiles project node scopes on write.
 	nodeScopeEnv *expr.Env
-	slots        chan struct{} // semaphore of open SSE streams; nil means unlimited
+	// scope evaluates node scopes and node sets (ADR-0078); its caches are shared by copies of deps.
+	scope *inventory.ProjectScope
+	slots chan struct{} // semaphore of open SSE streams; nil means unlimited
 }
 
 // inTx runs fn in one store transaction and, if an orchestrator is wired,
@@ -139,6 +142,11 @@ func newDeps(cfg Config) deps {
 		d.engErr = fmt.Errorf("building the node scope environment: %w", err)
 	} else {
 		d.nodeScopeEnv = env
+	}
+	if sc, err := inventory.NewProjectScope(cfg.Data, cfg.Now, cfg.Logger); err != nil {
+		d.engErr = fmt.Errorf("building the node scope: %w", err)
+	} else {
+		d.scope = sc
 	}
 	if pol, err := policy.New(cfg.Logger); err != nil {
 		d.engErr = fmt.Errorf("building the access policy: %w", err)

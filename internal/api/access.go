@@ -14,8 +14,9 @@ import (
 // expression sees claims (the raw id token claims) and user (sub, email, name,
 // groups).
 type AccessRule struct {
-	Role string `json:"role" required:"true" enum:"viewer,runner,editor,admin" doc:"On a job only viewer, runner and editor are allowed."`
-	Rule string `json:"rule" required:"true" minLength:"1" maxLength:"2048" doc:"A CEL expression that yields a boolean, for example 'billing-ops' in claims.groups."`
+	Role     string   `json:"role" required:"true" enum:"viewer,runner,editor,admin" doc:"On a job only viewer, runner and editor are allowed."`
+	Rule     string   `json:"rule" required:"true" minLength:"1" maxLength:"2048" doc:"A CEL expression that yields a boolean, for example 'billing-ops' in claims.groups."`
+	NodeSets []string `json:"node_sets,omitempty" maxItems:"8" doc:"Node sets (<project path>:<name>) the rule grants, from this project or an ancestor. None: every node within the project's node scope. A rule that grants admin cannot carry sets."`
 }
 
 // AccessRules is a rule list with the version to send back as if_version.
@@ -42,7 +43,7 @@ type jobAccessPut struct {
 func toStoreRules(in []AccessRule) []store.AccessRule {
 	out := make([]store.AccessRule, len(in))
 	for i, r := range in {
-		out[i] = store.AccessRule{Role: r.Role, Rule: r.Rule}
+		out[i] = store.AccessRule{Role: r.Role, Rule: r.Rule, NodeSets: r.NodeSets}
 	}
 	return out
 }
@@ -50,7 +51,7 @@ func toStoreRules(in []AccessRule) []store.AccessRule {
 func toAPIRules(in []store.AccessRule) []AccessRule {
 	out := make([]AccessRule, len(in))
 	for i, r := range in {
-		out[i] = AccessRule{Role: r.Role, Rule: r.Rule}
+		out[i] = AccessRule{Role: r.Role, Rule: r.Rule, NodeSets: r.NodeSets}
 	}
 	return out
 }
@@ -104,6 +105,9 @@ func registerAccess(api huma.API, d deps) {
 			if err != nil {
 				return nil, apiError(ctx, err)
 			}
+			if err := d.checkNodeSetRefs(ctx, in.Body.Rules, cur.Path); err != nil {
+				return nil, apiError(ctx, err)
+			}
 			version := cur.Version
 			if in.Body.IfVersion != nil {
 				version = *in.Body.IfVersion
@@ -138,7 +142,15 @@ func registerAccess(api huma.API, d deps) {
 			if err := d.checkRules(in.Body.Rules, store.RoleEditor); err != nil {
 				return nil, apiError(ctx, err)
 			}
-			if _, err := d.ds.GetJob(ctx, in.ID); err != nil {
+			job, err := d.ds.GetJob(ctx, in.ID)
+			if err != nil {
+				return nil, apiError(ctx, err)
+			}
+			proj, err := d.ds.GetProject(ctx, job.ProjectID)
+			if err != nil {
+				return nil, apiError(ctx, err)
+			}
+			if err := d.checkNodeSetRefs(ctx, in.Body.Rules, proj.Path); err != nil {
 				return nil, apiError(ctx, err)
 			}
 			cur, err := d.ds.GetJobAccess(ctx, in.ID)
@@ -212,6 +224,7 @@ func registerNodeScope(api huma.API, d deps) {
 			if err != nil {
 				return nil, apiError(ctx, err)
 			}
+			d.scope.Reset()
 			return &struct{ Body NodeScope }{NodeScope{NodeScope: p.NodeScope, Version: p.Version}}, nil
 		})
 }
