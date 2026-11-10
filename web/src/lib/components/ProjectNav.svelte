@@ -30,12 +30,15 @@
 			{ id: 'activity', label: 'Activity', rest: ['activity'], need: 'viewer' as const },
 			{ id: 'schedules', label: 'Schedules', rest: ['schedules'], need: 'viewer' as const },
 			{ id: 'webhooks', label: 'Webhooks', rest: ['webhooks'], need: 'viewer' as const },
+			{ id: 'nodes', label: 'Nodes', rest: ['nodes'], need: 'viewer' as const },
 			{ id: 'secrets', label: 'Secrets', rest: ['secrets'], need: 'editor' as const },
 			{ id: 'access', label: 'Access', rest: ['access'], need: 'admin' as const },
 			{ id: 'settings', label: 'Settings', rest: ['settings'], need: 'admin' as const }
 		].filter((i) => {
-			// A bearer token has no session for the project tabs of triggers.
+			// A bearer token has no session for the project tabs of triggers and nodes.
 			if (i.id === 'schedules' || i.id === 'webhooks') return isUser();
+			// Nodes show once the caller's role is known: someone with no role has no such tab.
+			if (i.id === 'nodes') return isUser() && atLeast(role, 'viewer');
 			return i.need === 'viewer' || atLeast(role, i.need);
 		})
 	);

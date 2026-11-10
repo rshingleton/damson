@@ -6,6 +6,7 @@
 	import ProjectAccess from '$lib/components/ProjectAccess.svelte';
 	import ProjectActivity from '$lib/components/ProjectActivity.svelte';
 	import ProjectNav from '$lib/components/ProjectNav.svelte';
+	import ProjectNodes from '$lib/components/ProjectNodes.svelte';
 	import ProjectOverview from '$lib/components/ProjectOverview.svelte';
 	import ProjectTriggers from '$lib/components/ProjectTriggers.svelte';
 	import ProjectSecrets from '$lib/components/ProjectSecrets.svelte';
@@ -34,15 +35,18 @@
 					'activity',
 					'schedules',
 					'webhooks',
+					'nodes',
 					'secrets',
 					'access',
 					'settings'
 				].includes(head))
 	);
-	// Secrets are for editors and up (writes for admins), Settings and Access for the project's admins: the role decides which tabs show, and
+	// Nodes are for anyone with a role (the server lists what their node sets allow), Secrets for editors and up (writes for admins), Settings and Access for the project's admins: the role decides which tabs show, and
 	// anyone else who types the URL gets the not-found view, as for a project they cannot see.
-	const adminTab = $derived(head === 'access' || head === 'settings' || head === 'secrets');
-	const needed = $derived(head === 'secrets' ? 'editor' : 'admin');
+	const adminTab = $derived(
+		head === 'access' || head === 'settings' || head === 'secrets' || head === 'nodes'
+	);
+	const needed = $derived(head === 'secrets' ? 'editor' : head === 'nodes' ? 'viewer' : 'admin');
 
 	// The caller's role on this project; unknown until read, and absent without a login.
 	let role = $state<string | undefined>(undefined);
@@ -92,6 +96,8 @@
 					<ProjectActivity path={route.path} />
 				{:else if head === 'schedules' || head === 'webhooks'}
 					<ProjectTriggers path={route.path} kind={head} {role} {roleLoaded} />
+				{:else if head === 'nodes'}
+					<ProjectNodes path={route.path} />
 				{:else if head === 'secrets'}
 					<ProjectSecrets path={route.path} canWrite={atLeast(role, 'admin')} />
 				{:else if head === 'access'}
