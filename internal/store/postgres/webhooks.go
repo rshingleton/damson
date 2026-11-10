@@ -48,6 +48,9 @@ func (s *Store) CreateWebhook(ctx context.Context, n store.NewWebhook, now time.
 		if err != nil {
 			return fmt.Errorf("creating webhook: %w", err)
 		}
+		if err := setWebhookGrant(ctx, q, n.ID, n.NodeSets); err != nil {
+			return err
+		}
 		if err := fillJobProject(ctx, tx.(*txn).q, &ev, n.JobID); err != nil {
 			return err
 		}
@@ -69,7 +72,9 @@ func (s *Store) GetWebhook(ctx context.Context, id string) (store.Webhook, error
 	if err != nil {
 		return store.Webhook{}, fmt.Errorf("reading webhook: %w", err)
 	}
-	return toWebhook(r), nil
+	wh := toWebhook(r)
+	wh.NodeSets, err = decodeGrant(s.q.GetWebhookNodeSets(ctx, id))
+	return wh, err
 }
 
 // ListWebhooks implements store.WebhookStore.
@@ -82,7 +87,7 @@ func (s *Store) ListWebhooks(ctx context.Context, jobID, afterID string, limit i
 	for i, r := range rows {
 		out[i] = toWebhook(r)
 	}
-	return out, nil
+	return withWebhookSets(ctx, s.q, out, nil)
 }
 
 // FindWebhook implements store.WebhookStore.
@@ -94,7 +99,9 @@ func (s *Store) FindWebhook(ctx context.Context, tokenHash string) (store.Webhoo
 	if err != nil {
 		return store.Webhook{}, fmt.Errorf("finding webhook: %w", err)
 	}
-	return toWebhook(r), nil
+	wh := toWebhook(r)
+	wh.NodeSets, err = decodeGrant(s.q.GetWebhookNodeSets(ctx, wh.ID))
+	return wh, err
 }
 
 // RevokeWebhook implements store.WebhookStore.
@@ -151,5 +158,5 @@ func (s *Store) ListWebhooksByProject(ctx context.Context, projectPath, afterID 
 	for i, r := range rows {
 		out[i] = toWebhook(r)
 	}
-	return out, nil
+	return withWebhookSets(ctx, s.q, out, nil)
 }

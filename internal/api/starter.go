@@ -29,7 +29,7 @@ const (
 // prepareRun is the part of starting a run that needs no transaction: it reads
 // the job version (the current one unless version is set), validates the
 // options against spec.options and builds the run with its first steps.
-func (d deps) prepareRun(ctx context.Context, jobID string, version *int, given map[string]any, trig Trigger) (store.NewRun, int, error) {
+func (d deps) prepareRun(ctx context.Context, jobID string, version *int, given map[string]any, trig Trigger, nodeSets []string) (store.NewRun, int, error) {
 	job, ver, spec, err := d.loadSpec(ctx, jobID, version)
 	if err != nil {
 		return store.NewRun{}, 0, err
@@ -38,7 +38,7 @@ func (d deps) prepareRun(ctx context.Context, jobID string, version *int, given 
 	if err != nil {
 		return store.NewRun{}, 0, err
 	}
-	nr, err := d.newRun(ctx, job, ver, spec, opts, trig)
+	nr, err := d.newRun(ctx, job, ver, spec, opts, trig, nodeSets)
 	return nr, ver.Version, err
 }
 
@@ -95,12 +95,14 @@ func (e *StartError) Error() string { return e.Msg }
 
 // Prepare validates the options and builds the run for the job's current
 // version. It must be called outside any transaction. A *StartError means the
-// run can never start with these inputs; other errors are transient.
-func (s *Starter) Prepare(ctx context.Context, jobID string, options map[string]any, trig Trigger) (Prepared, error) {
+// run can never start with these inputs; other errors are transient. nodeSets
+// are the node set references the run may use (nil: every node within the
+// project scope), copied from the schedule or webhook (ADR-0078).
+func (s *Starter) Prepare(ctx context.Context, jobID string, options map[string]any, trig Trigger, nodeSets []string) (Prepared, error) {
 	if err := s.d.ready(); err != nil {
 		return Prepared{}, err
 	}
-	nr, _, err := s.d.prepareRun(ctx, jobID, nil, options, trig)
+	nr, _, err := s.d.prepareRun(ctx, jobID, nil, options, trig, nodeSets)
 	if err != nil {
 		return Prepared{}, startError(err)
 	}
@@ -177,6 +179,8 @@ type runTriggerDetails struct {
 	Trigger      string `json:"trigger"`
 	ScheduleID   string `json:"schedule_id,omitempty"`
 	WebhookID    string `json:"webhook_id,omitempty"`
+	// NodeSets are the set references the run may use; absent for every node.
+	NodeSets []string `json:"node_sets,omitzero"`
 }
 
 // triggerActor is who a run is attributed to when the context names nobody:
@@ -201,7 +205,7 @@ func (d deps) auditRunTrigger(ctx context.Context, tx store.Tx, project string, 
 		meta = store.AuditMeta{Actor: triggerActor(trig)}
 	}
 	ev, err := store.NewEventAs(meta, store.ActionRunTrigger, store.AuditTargetRun, runID, project, runTriggerDetails{
-		JobID: nr.JobID, JobVersionID: nr.JobVersionID, Trigger: trig.Type, ScheduleID: trig.ScheduleID, WebhookID: trig.WebhookID,
+		JobID: nr.JobID, JobVersionID: nr.JobVersionID, Trigger: trig.Type, ScheduleID: trig.ScheduleID, WebhookID: trig.WebhookID, NodeSets: nr.NodeSets,
 	}, d.now())
 	if err != nil {
 		return err

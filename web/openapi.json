@@ -787,6 +787,16 @@
           "name": {
             "type": "string"
           },
+          "node_sets": {
+            "description": "The node sets (\u003cproject\u003e:\u003cname\u003e) runs of the webhook may use. Absent: every node within the project scope.",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "options": {
             "additionalProperties": {},
             "description": "Static options every run starts with; the mapping's result is merged over them.",
@@ -2750,6 +2760,16 @@
             "format": "date-time",
             "type": "string"
           },
+          "node_sets": {
+            "description": "The node sets (\u003cproject\u003e:\u003cname\u003e) runs of the schedule may use, copied from whoever created or last edited it. Absent: every node within the project scope.",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "options": {
             "additionalProperties": {},
             "description": "The options each run starts with; checked against spec.options when saved and again when the schedule fires.",
@@ -3598,6 +3618,16 @@
           },
           "name": {
             "type": "string"
+          },
+          "node_sets": {
+            "description": "The node sets (\u003cproject\u003e:\u003cname\u003e) runs of the webhook may use. Absent: every node within the project scope.",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
           },
           "options": {
             "additionalProperties": {},

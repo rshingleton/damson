@@ -82,6 +82,9 @@ func createRun(ctx context.Context, q *gen.Queries, nr store.NewRun, now time.Ti
 	if err != nil {
 		return store.RunTree{}, err
 	}
+	if err := setRunGrant(ctx, q, id, nr.NodeSets); err != nil {
+		return store.RunTree{}, err
+	}
 	if err := insertRunTargets(ctx, q, id, nr.Targets); err != nil {
 		return store.RunTree{}, err
 	}

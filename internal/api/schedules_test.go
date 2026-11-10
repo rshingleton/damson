@@ -177,16 +177,16 @@ func TestStarterCreatesAScheduledRun(t *testing.T) {
 		ctx := t.Context()
 
 		var se *api.StartError
-		_, err := s.Prepare(ctx, f.jobID, map[string]any{"env": "staging"}, api.Trigger{Type: api.TriggerSchedule})
+		_, err := s.Prepare(ctx, f.jobID, map[string]any{"env": "staging"}, api.Trigger{Type: api.TriggerSchedule}, nil)
 		require.ErrorAs(t, err, &se)
 		assert.Contains(t, se.Msg, "options.env")
 		assert.NotContains(t, se.Msg, "staging", "a message never carries an option value")
 		require.ErrorAs(t, s.CheckOptions(ctx, f.jobID, map[string]any{"env": "staging"}), &se)
 		require.NoError(t, s.CheckOptions(ctx, f.jobID, nil))
-		_, err = s.Prepare(ctx, "gone", nil, api.Trigger{Type: api.TriggerSchedule})
+		_, err = s.Prepare(ctx, "gone", nil, api.Trigger{Type: api.TriggerSchedule}, nil)
 		require.ErrorAs(t, err, &se)
 
-		p, err := s.Prepare(ctx, f.jobID, nil, api.Trigger{Type: api.TriggerSchedule, ScheduleID: "sc1", FireAt: "2026-01-02T03:00:00Z"})
+		p, err := s.Prepare(ctx, f.jobID, nil, api.Trigger{Type: api.TriggerSchedule, ScheduleID: "sc1", FireAt: "2026-01-02T03:00:00Z"}, nil)
 		require.NoError(t, err)
 		var runID string
 		require.NoError(t, st.WithTx(ctx, func(tx store.Tx) error {

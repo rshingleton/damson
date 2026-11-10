@@ -41,7 +41,11 @@ func triggerRun(ctx context.Context, d deps, in *triggerRunInput) (*runDetailOut
 			ProblemDetail{Message: fmt.Sprintf("%q is not supported yet; only %q is", p, policyQueue), Location: "body.concurrency_policy"}))
 	}
 	trig := triggerFor(ctx)
-	nr, number, err := d.prepareRun(ctx, in.ID, body.Version, body.Options, trig)
+	nodeSets, err := d.callerNodeSets(ctx, in.ID)
+	if err != nil {
+		return nil, apiError(ctx, err)
+	}
+	nr, number, err := d.prepareRun(ctx, in.ID, body.Version, body.Options, trig, nodeSets)
 	if err != nil {
 		return nil, apiError(ctx, err)
 	}
@@ -133,7 +137,7 @@ func hasLocation(fields []ProblemDetail, loc string) bool {
 // newRun builds the run insert from what Decide returns for a queued run: the
 // step instances it creates and their first executions. The other actions
 // (start, skip, fail, complete) are applied by run.advance.
-func (d deps) newRun(ctx context.Context, job store.Job, ver store.JobVersion, spec *engine.Job, opts map[string]any, trig Trigger) (store.NewRun, error) {
+func (d deps) newRun(ctx context.Context, job store.Job, ver store.JobVersion, spec *engine.Job, opts map[string]any, trig Trigger, nodeSets []string) (store.NewRun, error) {
 	id, err := store.NewID()
 	if err != nil {
 		return store.NewRun{}, err
@@ -156,7 +160,7 @@ func (d deps) newRun(ctx context.Context, job store.Job, ver store.JobVersion, s
 		// One more than the limit, so an overflow is seen rather than cut off.
 		pick := func(page []map[string]any) []map[string]any { return d.eng.SelectTargets(spec, opts, page) }
 		var err error
-		if state.Targets, err = d.targets.Targets(ctx, spec.Metadata.Project, pick, store.MaxRunTargets+1); err != nil {
+		if state.Targets, err = d.targets.Targets(ctx, spec.Metadata.Project, nodeSets, pick, store.MaxRunTargets+1); err != nil {
 			return store.NewRun{}, fmt.Errorf("listing targets: %w", err)
 		}
 		if frozen, err = freezeTargets(state.Targets); err != nil {
@@ -172,7 +176,7 @@ func (d deps) newRun(ctx context.Context, job store.Job, ver store.JobVersion, s
 	}
 	return store.NewRun{
 		ID: id, JobID: job.ID, JobVersionID: ver.ID, Trigger: trigger, Options: options,
-		Steps: initialSteps(actions), Targets: frozen,
+		Steps: initialSteps(actions), Targets: frozen, NodeSets: nodeSets,
 	}, nil
 }
 

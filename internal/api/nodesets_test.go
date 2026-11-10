@@ -249,3 +249,68 @@ func TestServiceTokensSeeNodesWithinTheCeilingAndNeverManageSets(t *testing.T) {
 		assert.Equal(t, 404, call("GET", "/api/v1/projects/ops/nodes", "").Code, "out of the token's scope")
 	})
 }
+
+func TestRunsSchedulesAndWebhooksCarryTheCreatorsSets(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		w := nodeSetWorld(t, st)
+		// dave is an editor in team/web through a rule limited to the set "web".
+		w.mustAdmin("PUT", "/api/v1/projects/team%2Fweb/access-rules",
+			`{"rules":[{"role":"editor","rule":"'team-leads' in claims.groups","node_sets":["team:web"]}]}`, 200)
+		call := func(user, method, path, body string) (int, []byte) {
+			opts := []reqOpt{withCookies(cookieHeader(w.sess[user]))}
+			if method != http.MethodGet {
+				opts = append(opts, withHeader(api.CSRFHeader, w.csrf[user]))
+			}
+			rec := w.do(0, method, path, body, opts...)
+			return rec.Code, rec.Body.Bytes()
+		}
+		runSets := func(user string) []string {
+			code, out := call(user, "POST", "/api/v1/jobs/"+w.webJob+"/runs", `{"options":{}}`)
+			require.Equal(t, 201, code, "%s: %s", user, out)
+			var run struct {
+				ID string `json:"id"`
+			}
+			require.NoError(t, json.Unmarshal(out, &run))
+			sets, err := st.GetRunNodeSets(t.Context(), run.ID)
+			require.NoError(t, err)
+			return sets
+		}
+		// A run carries what its caller may use: bob's rule, dave's rule, and every node for admins.
+		assert.Equal(t, []string{"team:web"}, runSets("bob"))
+		assert.Equal(t, []string{"team:web"}, runSets("dave"))
+		assert.Nil(t, runSets("gina"))
+		assert.Nil(t, runSets("alice"))
+
+		// A schedule made by dave carries dave's sets; the others' do not.
+		sched := func(user, method, path, body string, want int) api.Schedule {
+			code, out := call(user, method, path, body)
+			require.Equal(t, want, code, "%s %s: %s", user, path, out)
+			var s api.Schedule
+			require.NoError(t, json.Unmarshal(out, &s))
+			return s
+		}
+		mine := sched("dave", "POST", "/api/v1/schedules", `{"job_id":"`+w.webJob+`","name":"nightly","cron":"0 3 * * *"}`, 201)
+		assert.Equal(t, []string{"team:web"}, mine.NodeSets)
+		// Pause and resume keep them, whoever does it.
+		paused := sched("gina", "PATCH", "/api/v1/schedules/"+mine.ID, `{"enabled":false}`, 200)
+		assert.Equal(t, []string{"team:web"}, paused.NodeSets)
+		resumed := sched("gina", "PATCH", "/api/v1/schedules/"+mine.ID, `{"enabled":true}`, 200)
+		assert.Equal(t, []string{"team:web"}, resumed.NodeSets)
+		// Any other change makes the editor the owner: an admin has every node.
+		edited := sched("gina", "PATCH", "/api/v1/schedules/"+mine.ID, `{"cron":"0 4 * * *"}`, 200)
+		assert.Empty(t, edited.NodeSets)
+		// And the same by dave narrows it again.
+		again := sched("dave", "PATCH", "/api/v1/schedules/"+mine.ID, `{"cron":"0 5 * * *"}`, 200)
+		assert.Equal(t, []string{"team:web"}, again.NodeSets)
+		stored, err := st.GetSchedule(t.Context(), mine.ID)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"team:web"}, stored.NodeSets, "what the scheduler fires with")
+
+		// A webhook is created by an admin, so it may use every node within the project's scope.
+		code, out := call("gina", "POST", "/api/v1/webhooks", `{"job_id":"`+w.webJob+`","name":"ci"}`)
+		require.Equal(t, 201, code, string(out))
+		var hook api.CreatedWebhook
+		require.NoError(t, json.Unmarshal(out, &hook))
+		assert.Empty(t, hook.NodeSets)
+	})
+}

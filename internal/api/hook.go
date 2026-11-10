@@ -140,7 +140,7 @@ func (h *hookHandler) start(w http.ResponseWriter, r *http.Request, hook store.W
 		}
 	}
 	trig := Trigger{Type: TriggerWebhook, WebhookID: hook.ID}
-	nr, _, err := h.d.prepareRun(ctx, hook.JobID, nil, opts, trig)
+	nr, _, err := h.d.prepareRun(ctx, hook.JobID, nil, opts, trig, hook.NodeSets)
 	if err != nil {
 		return "", err
 	}

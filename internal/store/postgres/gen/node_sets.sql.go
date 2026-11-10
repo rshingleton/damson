@@ -11,6 +11,15 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const clearScheduleNodeSets = `-- name: ClearScheduleNodeSets :exec
+DELETE FROM schedule_node_sets WHERE schedule_id = $1
+`
+
+func (q *Queries) ClearScheduleNodeSets(ctx context.Context, scheduleID string) error {
+	_, err := q.db.Exec(ctx, clearScheduleNodeSets, scheduleID)
+	return err
+}
+
 const countNodeSetsByProject = `-- name: CountNodeSetsByProject :one
 SELECT count(*) FROM node_sets WHERE project_id = $1
 `
@@ -86,6 +95,39 @@ func (q *Queries) GetNodeSetByName(ctx context.Context, arg GetNodeSetByNamePara
 	return i, err
 }
 
+const getRunNodeSets = `-- name: GetRunNodeSets :one
+SELECT sets FROM run_node_sets WHERE run_id = $1
+`
+
+func (q *Queries) GetRunNodeSets(ctx context.Context, runID string) (string, error) {
+	row := q.db.QueryRow(ctx, getRunNodeSets, runID)
+	var sets string
+	err := row.Scan(&sets)
+	return sets, err
+}
+
+const getScheduleNodeSets = `-- name: GetScheduleNodeSets :one
+SELECT sets FROM schedule_node_sets WHERE schedule_id = $1
+`
+
+func (q *Queries) GetScheduleNodeSets(ctx context.Context, scheduleID string) (string, error) {
+	row := q.db.QueryRow(ctx, getScheduleNodeSets, scheduleID)
+	var sets string
+	err := row.Scan(&sets)
+	return sets, err
+}
+
+const getWebhookNodeSets = `-- name: GetWebhookNodeSets :one
+SELECT sets FROM webhook_node_sets WHERE webhook_id = $1
+`
+
+func (q *Queries) GetWebhookNodeSets(ctx context.Context, webhookID string) (string, error) {
+	row := q.db.QueryRow(ctx, getWebhookNodeSets, webhookID)
+	var sets string
+	err := row.Scan(&sets)
+	return sets, err
+}
+
 const insertNodeSet = `-- name: InsertNodeSet :exec
 INSERT INTO node_sets (id, project_id, name, description, filter, version, created_at, updated_at)
 VALUES ($1, $2, $3, $4, $5, 1, $6, $6)
@@ -144,6 +186,97 @@ func (q *Queries) ListNodeSetsByProject(ctx context.Context, projectID string) (
 		return nil, err
 	}
 	return items, nil
+}
+
+const listScheduleNodeSetTexts = `-- name: ListScheduleNodeSetTexts :many
+SELECT sets FROM schedule_node_sets
+`
+
+func (q *Queries) ListScheduleNodeSetTexts(ctx context.Context) ([]string, error) {
+	rows, err := q.db.Query(ctx, listScheduleNodeSetTexts)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var sets string
+		if err := rows.Scan(&sets); err != nil {
+			return nil, err
+		}
+		items = append(items, sets)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listWebhookNodeSetTexts = `-- name: ListWebhookNodeSetTexts :many
+SELECT sets FROM webhook_node_sets
+`
+
+func (q *Queries) ListWebhookNodeSetTexts(ctx context.Context) ([]string, error) {
+	rows, err := q.db.Query(ctx, listWebhookNodeSetTexts)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var sets string
+		if err := rows.Scan(&sets); err != nil {
+			return nil, err
+		}
+		items = append(items, sets)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const setRunNodeSets = `-- name: SetRunNodeSets :exec
+INSERT INTO run_node_sets (run_id, sets) VALUES ($1, $2)
+`
+
+type SetRunNodeSetsParams struct {
+	RunID string
+	Sets  string
+}
+
+func (q *Queries) SetRunNodeSets(ctx context.Context, arg SetRunNodeSetsParams) error {
+	_, err := q.db.Exec(ctx, setRunNodeSets, arg.RunID, arg.Sets)
+	return err
+}
+
+const setScheduleNodeSets = `-- name: SetScheduleNodeSets :exec
+INSERT INTO schedule_node_sets (schedule_id, sets) VALUES ($1, $2)
+ON CONFLICT (schedule_id) DO UPDATE SET sets = excluded.sets
+`
+
+type SetScheduleNodeSetsParams struct {
+	ScheduleID string
+	Sets       string
+}
+
+func (q *Queries) SetScheduleNodeSets(ctx context.Context, arg SetScheduleNodeSetsParams) error {
+	_, err := q.db.Exec(ctx, setScheduleNodeSets, arg.ScheduleID, arg.Sets)
+	return err
+}
+
+const setWebhookNodeSets = `-- name: SetWebhookNodeSets :exec
+INSERT INTO webhook_node_sets (webhook_id, sets) VALUES ($1, $2)
+`
+
+type SetWebhookNodeSetsParams struct {
+	WebhookID string
+	Sets      string
+}
+
+func (q *Queries) SetWebhookNodeSets(ctx context.Context, arg SetWebhookNodeSetsParams) error {
+	_, err := q.db.Exec(ctx, setWebhookNodeSets, arg.WebhookID, arg.Sets)
+	return err
 }
 
 const updateNodeSetCAS = `-- name: UpdateNodeSetCAS :execrows

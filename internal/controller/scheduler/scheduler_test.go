@@ -46,14 +46,16 @@ type fakeStarter struct {
 	mu         sync.Mutex
 	prepared   []api.Trigger
 	options    []map[string]any
+	nodeSets   [][]string
 	created    int
 	prepareErr error
 	createErr  error
 }
 
-func (f *fakeStarter) Prepare(_ context.Context, _ string, o map[string]any, trig api.Trigger) (api.Prepared, error) {
+func (f *fakeStarter) Prepare(_ context.Context, _ string, o map[string]any, trig api.Trigger, nodeSets []string) (api.Prepared, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.nodeSets = append(f.nodeSets, nodeSets)
 	f.prepared = append(f.prepared, trig)
 	f.options = append(f.options, o)
 	return api.Prepared{}, f.prepareErr
@@ -307,5 +309,28 @@ func TestStartStop(t *testing.T) {
 	}
 	if err := s.Stop(context.Background()); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestAFireCarriesTheSchedulesNodeSets(t *testing.T) {
+	h := newHarness(t)
+	h.add(t, "limited", func(sc *store.Schedule) { sc.NodeSets = []string{"default:web"} })
+	h.add(t, "open", nil)
+	d := h.duty(t, h.el, "c1", t0.Add(2*time.Second))
+	d.Once(context.Background())
+	if len(h.starter.nodeSets) != 2 {
+		t.Fatalf("prepared %d runs; want 2", len(h.starter.nodeSets))
+	}
+	var limited, open int
+	for _, sets := range h.starter.nodeSets {
+		switch {
+		case sets == nil:
+			open++
+		case len(sets) == 1 && sets[0] == "default:web":
+			limited++
+		}
+	}
+	if limited != 1 || open != 1 {
+		t.Fatalf("node sets of the fires = %v; want one restricted to default:web and one unrestricted (nil)", h.starter.nodeSets)
 	}
 }

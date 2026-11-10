@@ -23,6 +23,7 @@ type Webhook struct {
 	Name           string         `json:"name"`
 	Options        map[string]any `json:"options" doc:"Static options every run starts with; the mapping's result is merged over them."`
 	OptionsMapping string         `json:"options_mapping,omitempty" doc:"A CEL expression over body, headers and query that yields a map of options."`
+	NodeSets       []string       `json:"node_sets,omitzero" doc:"The node sets (<project>:<name>) runs of the webhook may use. Absent: every node within the project scope."`
 	Revoked        bool           `json:"revoked"`
 	RevokedAt      *time.Time     `json:"revoked_at,omitempty"`
 	LastUsedAt     *time.Time     `json:"last_used_at,omitempty"`
@@ -43,7 +44,7 @@ func toWebhook(w store.Webhook) Webhook {
 	_ = json.Unmarshal(w.Options, &opts)
 	return Webhook{
 		ID: w.ID, JobID: w.JobID, Name: w.Name, Options: opts, OptionsMapping: w.OptionsMapping, Revoked: w.RevokedAt != nil,
-		RevokedAt: w.RevokedAt, LastUsedAt: w.LastUsedAt, Version: w.Version, CreatedAt: w.CreatedAt, UpdatedAt: w.UpdatedAt,
+		NodeSets: w.NodeSets, RevokedAt: w.RevokedAt, LastUsedAt: w.LastUsedAt, Version: w.Version, CreatedAt: w.CreatedAt, UpdatedAt: w.UpdatedAt,
 	}
 }
 
@@ -182,8 +183,12 @@ func createWebhook(ctx context.Context, d deps, env *expr.Env, in *createWebhook
 	if err != nil {
 		return nil, apiError(ctx, err)
 	}
+	nodeSets, err := d.callerNodeSets(ctx, b.JobID)
+	if err != nil {
+		return nil, apiError(ctx, err)
+	}
 	created, err := d.ds.CreateWebhook(ctx, store.NewWebhook{
-		Webhook:   store.Webhook{ID: id, JobID: b.JobID, Name: b.Name, Options: opts, OptionsMapping: b.OptionsMapping},
+		Webhook:   store.Webhook{ID: id, JobID: b.JobID, Name: b.Name, Options: opts, OptionsMapping: b.OptionsMapping, NodeSets: nodeSets},
 		TokenHash: hash,
 	}, d.now())
 	if err != nil {

@@ -57,6 +57,9 @@ func (s *Store) CreateSchedule(ctx context.Context, sc store.Schedule, now time.
 		if err != nil {
 			return fmt.Errorf("creating schedule: %w", err)
 		}
+		if err := setScheduleGrant(ctx, q, sc.ID, sc.NodeSets); err != nil {
+			return err
+		}
 		if err := fillJobProject(ctx, tx.(*txn).q, &ev, sc.JobID); err != nil {
 			return err
 		}
@@ -78,7 +81,10 @@ func (s *Store) GetSchedule(ctx context.Context, id string) (store.Schedule, err
 	if err != nil {
 		return store.Schedule{}, fmt.Errorf("reading schedule: %w", err)
 	}
-	return toSchedule(r), nil
+	sc := toSchedule(r)
+	sets, err := decodeGrant(s.q.GetScheduleNodeSets(ctx, id))
+	sc.NodeSets = sets
+	return sc, err
 }
 
 // ListSchedules implements store.ScheduleStore.
@@ -91,7 +97,7 @@ func (s *Store) ListSchedules(ctx context.Context, jobID, afterID string, limit 
 	for i, r := range rows {
 		out[i] = toSchedule(r)
 	}
-	return out, nil
+	return withScheduleSets(ctx, s.q, out, nil)
 }
 
 // UpdateSchedule implements store.ScheduleStore.
@@ -123,6 +129,10 @@ func (s *Store) UpdateSchedule(ctx context.Context, sc store.Schedule, expected 
 			return fmt.Errorf("schedule %q is at version %d, not %d: %w", sc.ID, cur.Version, expected, store.ErrStale)
 		}
 		out = toSchedule(cur)
+		if err := setScheduleGrant(ctx, q, sc.ID, sc.NodeSets); err != nil {
+			return err
+		}
+		out.NodeSets = sc.NodeSets
 		ev, err := store.NewScheduleEvent(ctx, store.ActionScheduleUpdate, out, now)
 		if err != nil {
 			return err
@@ -173,7 +183,7 @@ func (s *Store) ListDueSchedules(ctx context.Context, now time.Time, limit int) 
 	for i, r := range rows {
 		out[i] = toSchedule(r)
 	}
-	return out, nil
+	return withScheduleSets(ctx, s.q, out, nil)
 }
 
 // FireSchedule implements store.Tx.
@@ -224,5 +234,5 @@ func (s *Store) ListSchedulesByProject(ctx context.Context, projectPath, afterID
 	for i, r := range rows {
 		out[i] = toSchedule(r)
 	}
-	return out, nil
+	return withScheduleSets(ctx, s.q, out, nil)
 }

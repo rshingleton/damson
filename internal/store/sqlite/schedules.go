@@ -83,6 +83,9 @@ func (s *Store) CreateSchedule(ctx context.Context, sc store.Schedule, now time.
 		if err != nil {
 			return fmt.Errorf("creating schedule: %w", err)
 		}
+		if err := setScheduleGrant(ctx, q, sc.ID, sc.NodeSets); err != nil {
+			return err
+		}
 		if err := fillJobProject(ctx, tx.(*txn).q, &ev, sc.JobID); err != nil {
 			return err
 		}
@@ -104,7 +107,13 @@ func (s *Store) GetSchedule(ctx context.Context, id string) (store.Schedule, err
 	if err != nil {
 		return store.Schedule{}, fmt.Errorf("reading schedule: %w", err)
 	}
-	return toSchedule(r)
+	sc, err := toSchedule(r)
+	if err != nil {
+		return store.Schedule{}, err
+	}
+	sets, err := decodeGrant(s.q.GetScheduleNodeSets(ctx, id))
+	sc.NodeSets = sets
+	return sc, err
 }
 
 // ListSchedules implements store.ScheduleStore.
@@ -113,7 +122,8 @@ func (s *Store) ListSchedules(ctx context.Context, jobID, afterID string, limit 
 	if err != nil {
 		return nil, fmt.Errorf("listing schedules: %w", err)
 	}
-	return toSchedules(rows)
+	out, err := toSchedules(rows)
+	return withScheduleSets(ctx, s.q, out, err)
 }
 
 // UpdateSchedule implements store.ScheduleStore.
@@ -147,6 +157,10 @@ func (s *Store) UpdateSchedule(ctx context.Context, sc store.Schedule, expected 
 		if out, err = toSchedule(cur); err != nil {
 			return err
 		}
+		if err := setScheduleGrant(ctx, q, sc.ID, sc.NodeSets); err != nil {
+			return err
+		}
+		out.NodeSets = sc.NodeSets
 		ev, err := store.NewScheduleEvent(ctx, store.ActionScheduleUpdate, out, now)
 		if err != nil {
 			return err
@@ -197,7 +211,8 @@ func (s *Store) ListDueSchedules(ctx context.Context, now time.Time, limit int) 
 	if err != nil {
 		return nil, fmt.Errorf("listing due schedules: %w", err)
 	}
-	return toSchedules(rows)
+	out, err := toSchedules(rows)
+	return withScheduleSets(ctx, s.q, out, err)
 }
 
 // FireSchedule implements store.Tx.
@@ -244,5 +259,6 @@ func (s *Store) ListSchedulesByProject(ctx context.Context, projectPath, afterID
 	if err != nil {
 		return nil, fmt.Errorf("listing schedules of project %s: %w", projectPath, err)
 	}
-	return toSchedules(rows)
+	out, err := toSchedules(rows)
+	return withScheduleSets(ctx, s.q, out, err)
 }

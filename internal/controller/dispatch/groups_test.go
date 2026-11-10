@@ -567,7 +567,7 @@ func TestForEachOverTargetsFromInventory(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		live, err := (&node.InventoryTargets{Store: st, Scope: inventory.AllNodes{}}).Targets(context.Background(), "default", nil, 1000)
+		live, err := (&node.InventoryTargets{Store: st, Scope: inventory.AllNodes{}}).Targets(context.Background(), "default", nil, nil, 1000)
 		if err != nil {
 			t.Fatal(err)
 		}

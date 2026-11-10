@@ -238,6 +238,11 @@ type Run struct {
 	CancelReason      string
 }
 
+type RunNodeSet struct {
+	RunID string
+	Sets  string
+}
+
 type RunTarget struct {
 	RunID    string
 	Position int64
@@ -262,6 +267,11 @@ type Schedule struct {
 	Version    int64
 	CreatedAt  string
 	UpdatedAt  string
+}
+
+type ScheduleNodeSet struct {
+	ScheduleID string
+	Sets       string
 }
 
 type Secret struct {
@@ -346,4 +356,9 @@ type Webhook struct {
 	Version        int64
 	CreatedAt      string
 	UpdatedAt      string
+}
+
+type WebhookNodeSet struct {
+	WebhookID string
+	Sets      string
 }

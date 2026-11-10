@@ -82,6 +82,7 @@ func Run(t *testing.T, f Factory) {
 		{"NodeSets", testNodeSets},
 		{"NodeSetRuleShape", testNodeSetRuleShape},
 		{"NodeSetGuards", testNodeSetGuards},
+		{"NodeSetGrants", testNodeSetGrants},
 		{"ApplyPlan", testApplyPlan},
 		{"ApplyAllOrNothing", testApplyAllOrNothing},
 		{"ApplyRace", testApplyRace},

@@ -48,7 +48,7 @@ type Leader interface {
 
 // Starter builds and inserts runs. api.Starter implements it.
 type Starter interface {
-	Prepare(ctx context.Context, jobID string, options map[string]any, trig api.Trigger) (api.Prepared, error)
+	Prepare(ctx context.Context, jobID string, options map[string]any, trig api.Trigger, nodeSets []string) (api.Prepared, error)
 	Create(ctx context.Context, tx store.Tx, p api.Prepared) (string, error)
 }
 
@@ -215,7 +215,7 @@ func (s *Scheduler) fire(ctx context.Context, sc store.Schedule, term int64, now
 			break
 		}
 		trig := api.Trigger{Type: api.TriggerSchedule, ScheduleID: sc.ID, FireAt: due.UTC().Format(time.RFC3339)}
-		p, err := s.cfg.Starter.Prepare(ctx, sc.JobID, opts, trig)
+		p, err := s.cfg.Starter.Prepare(ctx, sc.JobID, opts, trig, sc.NodeSets)
 		var se *api.StartError
 		switch {
 		case errors.As(err, &se):

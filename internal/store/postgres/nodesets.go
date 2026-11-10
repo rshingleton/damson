@@ -206,6 +206,21 @@ func (s *Store) DeleteNodeSet(ctx context.Context, id string, expectedVersion in
 		if what := store.NodeSetUser(ref, projects, jobs); what != "" {
 			return &store.NodeSetInUseError{Ref: ref, What: what}
 		}
+		schedTexts, err := q.ListScheduleNodeSetTexts(ctx)
+		if err != nil {
+			return fmt.Errorf("listing schedule node sets: %w", err)
+		}
+		hookTexts, err := q.ListWebhookNodeSetTexts(ctx)
+		if err != nil {
+			return fmt.Errorf("listing webhook node sets: %w", err)
+		}
+		kind, err := store.NodeSetUsedByGrants(ref, schedTexts, hookTexts)
+		if err != nil {
+			return err
+		}
+		if kind != "" {
+			return &store.NodeSetInUseError{Ref: ref, What: kind}
+		}
 		n, err := q.DeleteNodeSetCAS(ctx, gen.DeleteNodeSetCASParams{ID: id, ExpectedVersion: int64(expectedVersion)})
 		if err != nil {
 			return fmt.Errorf("deleting node set: %w", err)

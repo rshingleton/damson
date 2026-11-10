@@ -17,6 +17,8 @@ import (
 type nodeAndTargets interface {
 	store.NodeStore
 	store.RunTargetStore
+	// GetRunNodeSets returns the node sets the run may use; nil is every node within the scope.
+	GetRunNodeSets(ctx context.Context, runID string) ([]string, error)
 }
 
 // InventoryNodes serves the dispatcher from the inventory. It reads the node row
@@ -48,7 +50,11 @@ func (s *InventoryNodes) admit(ctx context.Context, runID, name string) (store.N
 	if err != nil {
 		return store.Node{}, fmt.Errorf("resolving the project of run %q: %w", runID, err)
 	}
-	ok, err := s.Scope.Allows(ctx, project, n)
+	sets, err := s.Store.GetRunNodeSets(ctx, runID)
+	if err != nil {
+		return store.Node{}, fmt.Errorf("reading the node sets of run %q: %w", runID, err)
+	}
+	ok, err := inventory.AllowedInSets(ctx, s.Scope, project, sets, n)
 	if err != nil {
 		return store.Node{}, err
 	}
@@ -187,6 +193,10 @@ func (s *InventoryNodes) admitAll(ctx context.Context, runID string, names []str
 	if err != nil {
 		return nil, fmt.Errorf("resolving the project of run %q: %w", runID, err)
 	}
+	sets, err := s.Store.GetRunNodeSets(ctx, runID)
+	if err != nil {
+		return nil, fmt.Errorf("reading the node sets of run %q: %w", runID, err)
+	}
 	out := make([]admitted, len(names))
 	for i, name := range names {
 		var n store.Node
@@ -200,7 +210,7 @@ func (s *InventoryNodes) admitAll(ctx context.Context, runID string, names []str
 			out[i].err = dispatch.ErrUnknownNode
 			continue
 		}
-		ok, err := s.Scope.Allows(ctx, project, n)
+		ok, err := inventory.AllowedInSets(ctx, s.Scope, project, sets, n)
 		if err != nil {
 			return nil, err
 		}

@@ -8,7 +8,8 @@ import (
 	"github.com/denyszorinets/damson/internal/store"
 )
 
-// InventoryTargets lists the enabled nodes a project's scope allows, sorted by
+// InventoryTargets lists the enabled nodes a project's scope allows (and, for a
+// run restricted to node sets, only those in its sets), sorted by
 // name, as the plain maps `targets` and the selector read. A map never carries
 // the credential, the host key or its policy. A run freezes this list when it
 // starts (#117).
@@ -20,7 +21,7 @@ type InventoryTargets struct {
 // Targets implements api.TargetSource. It pages through every enabled node in
 // scope, so the selector sees the whole inventory, and stops at limit picks.
 // A node that moved between pages (a rename during the scan) is kept once.
-func (t *InventoryTargets) Targets(ctx context.Context, project string, pick func([]map[string]any) []map[string]any, limit int) ([]map[string]any, error) {
+func (t *InventoryTargets) Targets(ctx context.Context, project string, nodeSets []string, pick func([]map[string]any) []map[string]any, limit int) ([]map[string]any, error) {
 	const pageSize = 200
 	enabled := true
 	var out []map[string]any
@@ -36,7 +37,7 @@ func (t *InventoryTargets) Targets(ctx context.Context, project string, pick fun
 			if seen[n.ID] {
 				continue
 			}
-			ok, err := t.Scope.Allows(ctx, project, n)
+			ok, err := inventory.AllowedInSets(ctx, t.Scope, project, nodeSets, n)
 			if err != nil {
 				return nil, fmt.Errorf("checking the node scope: %w", err)
 			}

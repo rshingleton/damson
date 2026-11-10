@@ -433,3 +433,96 @@ func TestBatchQueriesDoNotGrowWithTheNodeCount(t *testing.T) {
 		t.Errorf("%d batch calls for %d names; want a constant number", cs.batch, total)
 	}
 }
+
+const setsSpec = `{"apiVersion":"damson.dev/v1","kind":"Job","metadata":{"project":"default","name":"j"},"spec":{"steps":[{"id":"s","plugin":"ssh","with":{"node":"n","command":"true"}}]}}`
+
+func TestRunNodeSetsRestrictDispatchAndTargets(t *testing.T) {
+	ctx := store.WithAudit(context.Background(), store.AuditMeta{Actor: "test:actor"})
+	s := newStore(t)
+	for _, name := range []string{"web-1", "db-1"} {
+		put(t, s, name, true)
+	}
+	if _, err := s.CreateNodeSet(ctx, store.DefaultProjectID, "web", "", `node.name.matches('^web')`, t0); err != nil {
+		t.Fatal(err)
+	}
+	job, ver, err := s.CreateJob(ctx, store.NewJob{ProjectID: store.DefaultProjectID, Name: "j", Spec: []byte(setsSpec), Checksum: "c"}, t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mkRun := func(sets []string) string {
+		t.Helper()
+		tree, err := s.CreateRun(ctx, store.NewRun{JobID: job.ID, JobVersionID: ver.ID, Trigger: []byte(`{}`), Options: []byte(`{}`), NodeSets: sets,
+			Steps: []store.NewStepInstance{{Path: "s", Plugin: "ssh"}}}, t0)
+		if err != nil {
+			t.Fatalf("CreateRun: %v", err)
+		}
+		return tree.ID
+	}
+	all, limited, none := mkRun(nil), mkRun([]string{"default:web"}), mkRun([]string{})
+
+	if got, err := s.GetRunNodeSets(ctx, all); err != nil || got != nil {
+		t.Fatalf("a run without sets = %v, %v; want nil", got, err)
+	}
+	if got, err := s.GetRunNodeSets(ctx, limited); err != nil || len(got) != 1 || got[0] != "default:web" {
+		t.Fatalf("a run with a set = %v, %v", got, err)
+	}
+	if got, err := s.GetRunNodeSets(ctx, none); err != nil || got == nil || len(got) != 0 {
+		t.Fatalf("a run with no sets = %#v, %v; want empty, not nil", got, err)
+	}
+
+	scope, err := inventory.NewProjectScope(s, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := source(s, scope, nil)
+	for _, tc := range []struct {
+		run, node string
+		want      error
+	}{
+		{all, "db-1", nil},
+		{all, "web-1", nil},
+		{limited, "web-1", nil},
+		{limited, "db-1", dispatch.ErrUnknownNode}, // outside the run's sets: unknown, as a missing node
+		{limited, "nope", dispatch.ErrUnknownNode},
+		{none, "web-1", dispatch.ErrUnknownNode},
+	} {
+		if _, err := src.Node(ctx, tc.run, tc.node); (tc.want == nil && err != nil) || (tc.want != nil && !errors.Is(err, tc.want)) {
+			t.Errorf("run %s node %s: %v; want %v", tc.run, tc.node, err, tc.want)
+		}
+	}
+	// A batch dispatch and the pool lookup are held to the same sets.
+	res, err := src.Nodes(ctx, limited, []string{"web-1", "db-1"})
+	if err != nil || res[0].Err != nil || !errors.Is(res[1].Err, dispatch.ErrUnknownNode) {
+		t.Fatalf("Nodes = %+v, %v", res, err)
+	}
+	if _, err := src.NodePool(ctx, limited, "db-1"); !errors.Is(err, dispatch.ErrUnknownNode) {
+		t.Fatalf("NodePool of a hidden node: %v", err)
+	}
+	// A scope that knows no sets allows nothing to a restricted run (fail closed), everything to an unrestricted one.
+	if _, err := source(s, inventory.AllNodes{}, nil).Node(ctx, limited, "web-1"); !errors.Is(err, dispatch.ErrUnknownNode) {
+		t.Fatalf("restricted run on a scope without sets: %v", err)
+	}
+
+	// Targets are frozen only from the run's sets.
+	tg := &node.InventoryTargets{Store: s, Scope: scope}
+	names := func(sets []string) []string {
+		got, err := tg.Targets(ctx, "default", sets, nil, 100)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, m := range got {
+			out = append(out, m["name"].(string))
+		}
+		return out
+	}
+	if got := names(nil); fmt.Sprint(got) != "[db-1 web-1]" {
+		t.Fatalf("targets for every node = %v", got)
+	}
+	if got := names([]string{"default:web"}); fmt.Sprint(got) != "[web-1]" {
+		t.Fatalf("targets for the web set = %v; a selector can only narrow this", got)
+	}
+	if got := names([]string{}); len(got) != 0 {
+		t.Fatalf("targets with no sets = %v", got)
+	}
+}

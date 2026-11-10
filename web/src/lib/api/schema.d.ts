@@ -1274,6 +1274,8 @@ export interface components {
             /** Format: date-time */
             last_used_at?: string;
             name: string;
+            /** @description The node sets (<project>:<name>) runs of the webhook may use. Absent: every node within the project scope. */
+            node_sets?: string[] | null;
             /** @description Static options every run starts with; the mapping's result is merged over them. */
             options: {
                 [key: string]: unknown;
@@ -1900,6 +1902,8 @@ export interface components {
              * @description Absent while disabled.
              */
             next_fire_at?: string;
+            /** @description The node sets (<project>:<name>) runs of the schedule may use, copied from whoever created or last edited it. Absent: every node within the project scope. */
+            node_sets?: string[] | null;
             /** @description The options each run starts with; checked against spec.options when saved and again when the schedule fires. */
             options: {
                 [key: string]: unknown;
@@ -2202,6 +2206,8 @@ export interface components {
             /** Format: date-time */
             last_used_at?: string;
             name: string;
+            /** @description The node sets (<project>:<name>) runs of the webhook may use. Absent: every node within the project scope. */
+            node_sets?: string[] | null;
             /** @description Static options every run starts with; the mapping's result is merged over them. */
             options: {
                 [key: string]: unknown;

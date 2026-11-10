@@ -23,3 +23,31 @@ WHERE id = sqlc.arg(id) AND version = sqlc.arg(expected_version);
 
 -- name: DeleteNodeSetCAS :execrows
 DELETE FROM node_sets WHERE id = sqlc.arg(id) AND version = sqlc.arg(expected_version);
+
+-- name: SetRunNodeSets :exec
+INSERT INTO run_node_sets (run_id, sets) VALUES (sqlc.arg(run_id), sqlc.arg(sets));
+
+-- name: GetRunNodeSets :one
+SELECT sets FROM run_node_sets WHERE run_id = sqlc.arg(run_id);
+
+-- name: SetScheduleNodeSets :exec
+INSERT INTO schedule_node_sets (schedule_id, sets) VALUES (sqlc.arg(schedule_id), sqlc.arg(sets))
+ON CONFLICT (schedule_id) DO UPDATE SET sets = excluded.sets;
+
+-- name: ClearScheduleNodeSets :exec
+DELETE FROM schedule_node_sets WHERE schedule_id = sqlc.arg(schedule_id);
+
+-- name: GetScheduleNodeSets :one
+SELECT sets FROM schedule_node_sets WHERE schedule_id = sqlc.arg(schedule_id);
+
+-- name: SetWebhookNodeSets :exec
+INSERT INTO webhook_node_sets (webhook_id, sets) VALUES (sqlc.arg(webhook_id), sqlc.arg(sets));
+
+-- name: GetWebhookNodeSets :one
+SELECT sets FROM webhook_node_sets WHERE webhook_id = sqlc.arg(webhook_id);
+
+-- name: ListScheduleNodeSetTexts :many
+SELECT sets FROM schedule_node_sets;
+
+-- name: ListWebhookNodeSetTexts :many
+SELECT sets FROM webhook_node_sets;

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/denyszorinets/damson/internal/store"
 )
@@ -185,4 +186,123 @@ func testNodeSetGuards(t *testing.T, s store.Store) {
 	if _, err := s.CreateNodeSet(ctx, mp.ID, "x", "", "true", t0); !errors.As(err, &managed) {
 		t.Fatalf("create in a managed project: %v; want ManagedError", err)
 	}
+}
+
+func eqSets(a, b []string) bool {
+	if (a == nil) != (b == nil) || len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func testNodeSetGrants(t *testing.T, s store.Store) {
+	ctx := actorCtx()
+	migrated(t, s)
+	job, _ := mustJob(t, s, "grants-job")
+	next := t0.Add(5 * time.Minute)
+
+	// A schedule keeps the sets it was saved with; nil is every node, empty is none.
+	sc := newSchedule("g1", job.ID, "limited", next)
+	sc.NodeSets = []string{"default:web", "default:db"}
+	if _, err := s.CreateSchedule(ctx, sc, t0); err != nil {
+		t.Fatal(err)
+	}
+	all := newSchedule("g2", job.ID, "all", next)
+	if _, err := s.CreateSchedule(ctx, all, t0); err != nil {
+		t.Fatal(err)
+	}
+	for id, want := range map[string][]string{"g1": {"default:web", "default:db"}, "g2": nil} {
+		got, err := s.GetSchedule(ctx, id)
+		if err != nil || !eqSets(got.NodeSets, want) {
+			t.Fatalf("GetSchedule(%s).NodeSets = %#v, %v; want %#v", id, got.NodeSets, err, want)
+		}
+	}
+	list, err := s.ListSchedules(ctx, job.ID, "", 10)
+	if err != nil || len(list) != 2 || !eqSets(list[0].NodeSets, []string{"default:web", "default:db"}) || list[1].NodeSets != nil {
+		t.Fatalf("ListSchedules sets = %+v, %v", list, err)
+	}
+	// An update replaces them: narrowing, then back to every node.
+	cur, _ := s.GetSchedule(ctx, "g2")
+	cur.NodeSets = []string{}
+	up, err := s.UpdateSchedule(ctx, cur, cur.Version, t0)
+	if err != nil || up.NodeSets == nil || len(up.NodeSets) != 0 {
+		t.Fatalf("narrow to none: %+v, %v", up, err)
+	}
+	if got, _ := s.GetSchedule(ctx, "g2"); got.NodeSets == nil || len(got.NodeSets) != 0 {
+		t.Fatalf("stored sets = %#v; want empty, not nil", got.NodeSets)
+	}
+	cur, _ = s.GetSchedule(ctx, "g2")
+	cur.NodeSets = nil
+	if _, err := s.UpdateSchedule(ctx, cur, cur.Version, t0); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.GetSchedule(ctx, "g2"); got.NodeSets != nil {
+		t.Fatalf("sets after clearing = %#v; want nil", got.NodeSets)
+	}
+	if err := s.DeleteSchedule(ctx, "g1", t0); err != nil {
+		t.Fatal(err)
+	}
+
+	// A set that a schedule or webhook still holds cannot be deleted.
+	web, err := s.CreateNodeSet(ctx, store.DefaultProjectID, "grant-web", "", "true", t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hs := newSchedule("g3", job.ID, "holds-set", next)
+	hs.NodeSets = []string{"default:grant-web"}
+	if _, err := s.CreateSchedule(ctx, hs, t0); err != nil {
+		t.Fatal(err)
+	}
+	var inUse *store.NodeSetInUseError
+	if err := s.DeleteNodeSet(ctx, web.ID, 1, t0); !errors.As(err, &inUse) || inUse.What != "schedules" {
+		t.Fatalf("delete of a set a schedule holds: %v", err)
+	}
+	if err := s.DeleteSchedule(ctx, "g3", t0); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteNodeSet(ctx, web.ID, 1, t0); err != nil {
+		t.Fatalf("delete once released: %v", err)
+	}
+
+	// A run keeps its sets: nil is every node, empty is none.
+	for name, want := range map[string][]string{"all": nil, "none": {}, "some": {"default:a", "default:b"}} {
+		tree, err := s.CreateRun(ctx, store.NewRun{JobID: job.ID, JobVersionID: jobVersionID(t, s, job), Trigger: []byte(`{}`), Options: []byte(`{}`), NodeSets: want,
+			Steps: []store.NewStepInstance{{Path: "s", Plugin: "ssh"}}}, t0)
+		if err != nil {
+			t.Fatalf("%s: CreateRun: %v", name, err)
+		}
+		if got, err := s.GetRunNodeSets(ctx, tree.ID); err != nil || !eqSets(got, want) {
+			t.Fatalf("%s: GetRunNodeSets = %#v, %v; want %#v", name, got, err, want)
+		}
+	}
+
+	// A webhook keeps the sets of its creator, and FindWebhook returns them.
+	nw := newWebhook("w-g1", job.ID, "hook", hashOf("g"))
+	nw.NodeSets = []string{"default:web"}
+	if _, err := s.CreateWebhook(ctx, nw, t0); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.GetWebhook(ctx, "w-g1"); err != nil || !eqSets(got.NodeSets, []string{"default:web"}) {
+		t.Fatalf("GetWebhook sets = %#v, %v", got.NodeSets, err)
+	}
+	if got, err := s.FindWebhook(ctx, nw.TokenHash); err != nil || !eqSets(got.NodeSets, []string{"default:web"}) {
+		t.Fatalf("FindWebhook sets = %#v, %v", got.NodeSets, err)
+	}
+	if hooks, err := s.ListWebhooks(ctx, job.ID, "", 10); err != nil || len(hooks) != 1 || !eqSets(hooks[0].NodeSets, []string{"default:web"}) {
+		t.Fatalf("ListWebhooks sets = %+v, %v", hooks, err)
+	}
+}
+
+func jobVersionID(t *testing.T, s store.Store, job store.Job) string {
+	t.Helper()
+	v, err := s.GetJobVersionByNumber(context.Background(), job.ID, job.CurrentVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return v.ID
 }

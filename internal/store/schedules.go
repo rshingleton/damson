@@ -37,9 +37,12 @@ type Schedule struct {
 	LastFireAt *time.Time
 	LastRunID  string
 	LastError  string // why the last fire made no run; never an option value
-	Version    int64
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	// NodeSets are the node set references runs of the schedule may use, copied
+	// from its creator or last editor (ADR-0078); nil means every node within the scope.
+	NodeSets  []string
+	Version   int64
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // Validate checks the fields the store itself depends on. Cron syntax and the
@@ -88,6 +91,8 @@ type ScheduleAuditDetails struct {
 	Enabled  bool   `json:"enabled"`
 	Misfire  string `json:"misfire"`
 	Version  int64  `json:"version"`
+	// NodeSets are the node set references of the schedule; absent for every node.
+	NodeSets []string `json:"node_sets,omitzero"`
 }
 
 // NewScheduleEvent builds the event of a schedule write for the actor in ctx.
@@ -101,7 +106,7 @@ func NewScheduleEvent(ctx context.Context, action string, s Schedule, now time.T
 		return AuditEvent{}, err
 	}
 	details, err := json.Marshal(ScheduleAuditDetails{
-		JobID: s.JobID, Name: s.Name, Cron: s.Cron, Timezone: s.Timezone, Enabled: s.Enabled, Misfire: s.Misfire, Version: s.Version,
+		JobID: s.JobID, Name: s.Name, Cron: s.Cron, Timezone: s.Timezone, Enabled: s.Enabled, Misfire: s.Misfire, Version: s.Version, NodeSets: s.NodeSets,
 	})
 	if err != nil {
 		return AuditEvent{}, fmt.Errorf("encoding audit details: %w", err)

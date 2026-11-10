@@ -157,6 +157,9 @@ type NodeSetStore interface {
 	// (*NodeSetInUseError) while an access rule of the owning project's subtree
 	// or of a job in it references the set.
 	DeleteNodeSet(ctx context.Context, id string, expectedVersion int, now time.Time) error
+	// GetRunNodeSets returns the set references a run may use; nil means every
+	// node within the project's scope (also for a run that has none stored).
+	GetRunNodeSets(ctx context.Context, runID string) ([]string, error)
 }
 
 // NodeSetUser names what in a project subtree references ref ("" when nothing
@@ -176,4 +179,48 @@ func NodeSetUser(ref string, subtree []Project, jobs []JobRules) string {
 		}
 	}
 	return ""
+}
+
+// EncodeNodeSets is the stored form of a run's, schedule's or webhook's set
+// references. nil means every node within the project's scope and is not stored.
+func EncodeNodeSets(sets []string) (string, error) {
+	b, err := json.Marshal(sets)
+	if err != nil {
+		return "", fmt.Errorf("encoding node sets: %w", err)
+	}
+	return string(b), nil
+}
+
+// DecodeNodeSets reverses EncodeNodeSets; an empty text is nil (every node).
+func DecodeNodeSets(raw string) ([]string, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	var sets []string
+	if err := json.Unmarshal([]byte(raw), &sets); err != nil {
+		return nil, fmt.Errorf("decoding node sets: %w", err)
+	}
+	if sets == nil {
+		sets = []string{}
+	}
+	return sets, nil
+}
+
+// NodeSetUsedByGrants names the kind of schedule or webhook whose stored sets
+// (JSON arrays) include ref, "" when none does.
+func NodeSetUsedByGrants(ref string, schedules, webhooks []string) (string, error) {
+	for kind, texts := range map[string][]string{"schedules": schedules, "webhooks": webhooks} {
+		for _, t := range texts {
+			sets, err := DecodeNodeSets(t)
+			if err != nil {
+				return "", err
+			}
+			for _, s := range sets {
+				if s == ref {
+					return kind, nil
+				}
+			}
+		}
+	}
+	return "", nil
 }

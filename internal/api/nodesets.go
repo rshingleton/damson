@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -60,7 +61,7 @@ func toProjectNode(n store.Node, through []string) ProjectNode {
 // nodeAccess is what the caller may do with nodes in a project (ADR-0078). An
 // instance admin, a service token and an anonymous caller see every node within
 // the project's node scope; a user sees what the matching rules give.
-func (d deps) nodeAccess(ctx context.Context, project string) (policy.NodeAccess, error) {
+func (d deps) nodeAccess(ctx context.Context, project, jobID string) (policy.NodeAccess, error) {
 	p, ok := PrincipalFrom(ctx)
 	if !ok || p.InstanceAdmin || p.Token != nil || p.Session == nil || d.policy == nil || d.oidc == nil {
 		return policy.NodeAccess{All: true}, nil
@@ -69,9 +70,16 @@ func (d deps) nodeAccess(ctx context.Context, project string) (policy.NodeAccess
 	if err != nil {
 		return policy.NodeAccess{}, err
 	}
-	lists := make([][]store.AccessRule, 0, len(chain))
+	lists := make([][]store.AccessRule, 0, len(chain)+1)
 	for _, pr := range chain {
 		lists = append(lists, pr.AccessRules)
+	}
+	if jobID != "" {
+		ja, err := d.ds.GetJobAccess(ctx, jobID)
+		if err != nil {
+			return policy.NodeAccess{}, err
+		}
+		lists = append(lists, ja.Rules)
 	}
 	return d.policy.Nodes(d.identityOf(p.Session), lists...), nil
 }
@@ -360,7 +368,7 @@ func listProjectNodes(ctx context.Context, d deps, in *listProjectNodesInput) (*
 	if _, err := d.ds.GetProjectByPath(ctx, in.Path); err != nil {
 		return nil, apiError(ctx, err)
 	}
-	access, err := d.nodeAccess(ctx, in.Path)
+	access, err := d.nodeAccess(ctx, in.Path, "")
 	if err != nil {
 		return nil, apiError(ctx, err)
 	}
@@ -408,4 +416,28 @@ func (d deps) visibleThrough(ctx context.Context, project string, access policy.
 		}
 	}
 	return through
+}
+
+// callerNodeSets is the node set references a run, schedule or webhook made by
+// the caller carries for a job: nil when the caller may use every node within
+// the project's scope (the sets are then not stored), else the caller's sets.
+func (d deps) callerNodeSets(ctx context.Context, jobID string) ([]string, error) {
+	project, err := d.projectOfJobRow(ctx, jobID)
+	if errors.Is(err, errNoParent) {
+		return nil, store.ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	access, err := d.nodeAccess(ctx, project, jobID)
+	if err != nil {
+		return nil, err
+	}
+	if access.All {
+		return nil, nil
+	}
+	if access.Sets == nil {
+		return []string{}, nil
+	}
+	return access.Sets, nil
 }

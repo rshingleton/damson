@@ -73,13 +73,14 @@ type Config struct {
 	Logger *slog.Logger
 }
 
-// TargetSource lists the nodes `targets` is built from.
+// TargetSource lists the nodes `targets` is built from. nodeSets are the node
+// set references the run may use; nil means every node within the project scope.
 type TargetSource interface {
 	// Targets scans the enabled nodes a job of project can target, in name
 	// order, hands each batch to pick (nil keeps all) and returns the picked
 	// nodes, stopping once there are limit of them. An error fails the request
 	// (nothing is created).
-	Targets(ctx context.Context, project string, pick func([]map[string]any) []map[string]any, limit int) ([]map[string]any, error)
+	Targets(ctx context.Context, project string, nodeSets []string, pick func([]map[string]any) []map[string]any, limit int) ([]map[string]any, error)
 }
 
 // Server is the controller's HTTP server component. Start listens and serves

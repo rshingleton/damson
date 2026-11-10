@@ -28,6 +28,7 @@ type Schedule struct {
 	LastFireAt *time.Time     `json:"last_fire_at,omitempty" doc:"When the last run was started."`
 	LastRunID  string         `json:"last_run_id,omitempty"`
 	LastError  string         `json:"last_error,omitempty" doc:"Why the last fire time made no run, or a warning about the schedule. Never an option value."`
+	NodeSets   []string       `json:"node_sets,omitzero" doc:"The node sets (<project>:<name>) runs of the schedule may use, copied from whoever created or last edited it. Absent: every node within the project scope."`
 	Version    int64          `json:"version"`
 	CreatedAt  time.Time      `json:"created_at"`
 	UpdatedAt  time.Time      `json:"updated_at"`
@@ -38,7 +39,7 @@ func toSchedule(s store.Schedule) Schedule {
 	_ = json.Unmarshal(s.Options, &opts) // stored from a map; a failure leaves it empty
 	return Schedule{
 		ID: s.ID, JobID: s.JobID, Name: s.Name, Cron: s.Cron, Timezone: s.Timezone, Options: opts, Enabled: s.Enabled, Misfire: s.Misfire,
-		NextFireAt: s.NextFireAt, LastFireAt: s.LastFireAt, LastRunID: s.LastRunID, LastError: s.LastError,
+		NextFireAt: s.NextFireAt, LastFireAt: s.LastFireAt, LastRunID: s.LastRunID, LastError: s.LastError, NodeSets: s.NodeSets,
 		Version: s.Version, CreatedAt: s.CreatedAt, UpdatedAt: s.UpdatedAt,
 	}
 }
@@ -215,6 +216,9 @@ func createSchedule(ctx context.Context, d deps, in *createScheduleInput) (*sche
 		ID: id, JobID: b.JobID, Name: b.Name, Cron: b.Cron, Timezone: orDefault(b.Timezone, "UTC"), Options: opts,
 		Enabled: b.Enabled == nil || *b.Enabled, Misfire: orDefault(b.Misfire, store.MisfireRunOnce),
 	}
+	if s.NodeSets, err = d.callerNodeSets(ctx, b.JobID); err != nil {
+		return nil, apiError(ctx, err)
+	}
 	if err := d.checkSchedule(ctx, &s, true, true); err != nil {
 		return nil, apiError(ctx, err)
 	}
@@ -244,6 +248,12 @@ func patchSchedule(ctx context.Context, d deps, in *patchScheduleInput) (*schedu
 		s, recompute, err := applySchedulePatch(cur, in)
 		if err != nil {
 			return nil, apiError(ctx, err)
+		}
+		if b := in.Body; b.Name != nil || b.Cron != nil || b.Timezone != nil || b.Options != nil || b.Misfire != nil {
+			// Anything but pause and resume makes the editor the owner of the node sets (ADR-0078, D1).
+			if s.NodeSets, err = d.callerNodeSets(ctx, cur.JobID); err != nil {
+				return nil, apiError(ctx, err)
+			}
 		}
 		if err := d.checkSchedule(ctx, &s, recompute, in.Body.Options != nil || in.Body.Enabled != nil && *in.Body.Enabled && !cur.Enabled); err != nil {
 			return nil, apiError(ctx, err)

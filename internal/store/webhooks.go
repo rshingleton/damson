@@ -27,11 +27,14 @@ type Webhook struct {
 	Name           string
 	Options        json.RawMessage // static options, a JSON object
 	OptionsMapping string          // CEL over the request, or empty
-	RevokedAt      *time.Time
-	LastUsedAt     *time.Time
-	Version        int64
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	// NodeSets are the node set references runs of the webhook may use, copied
+	// from its creator (ADR-0078); nil means every node within the scope.
+	NodeSets   []string
+	RevokedAt  *time.Time
+	LastUsedAt *time.Time
+	Version    int64
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 // NewWebhook is a webhook to create with the SHA-256 hex of its token.

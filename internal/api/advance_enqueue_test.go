@@ -82,7 +82,7 @@ func TestTriggerRollsBackWhenEnqueueFails(t *testing.T) {
 
 type fixedTargets []map[string]any
 
-func (f fixedTargets) Targets(_ context.Context, _ string, pick func([]map[string]any) []map[string]any, limit int) ([]map[string]any, error) {
+func (f fixedTargets) Targets(_ context.Context, _ string, _ []string, pick func([]map[string]any) []map[string]any, limit int) ([]map[string]any, error) {
 	out := pick(f)
 	if len(out) > limit {
 		out = out[:limit]

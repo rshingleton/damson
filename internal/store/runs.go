@@ -146,6 +146,9 @@ type NewRun struct {
 	// Targets is the frozen target list of the run (at most MaxRunTargets),
 	// written with the run. Empty for a job that does not use targets.
 	Targets []RunTarget
+	// NodeSets are the node set references the run may use at dispatch
+	// (ADR-0078); nil means every node within the project's scope.
+	NodeSets []string
 }
 
 // StepUpdate is a CAS on a step instance's status.
