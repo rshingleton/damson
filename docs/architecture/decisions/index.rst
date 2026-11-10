@@ -237,6 +237,12 @@ change nothing until accepted.
    * - 0076
      - :doc:`0076-project-scoped-schedules-and-webhooks`
      - Accepted
+   * - 0077
+     - :doc:`0077-project-scoped-secrets`
+     - Accepted
+   * - 0078
+     - :doc:`0078-node-sets`
+     - Accepted
 
 .. toctree::
    :hidden:
@@ -318,3 +324,4 @@ change nothing until accepted.
    0075-ui-project-tree-api
    0076-project-scoped-schedules-and-webhooks
    0077-project-scoped-secrets
+   0078-node-sets
