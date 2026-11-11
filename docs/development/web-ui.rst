@@ -131,7 +131,7 @@ own container, so a page never scrolls sideways.
    the runs filtered by status and job, with "More" paging. Runs come from
    ``GET /runs?project=``, which covers the project and those below it and
    answers 404 for a project the caller has no role on, so a hidden project
-   reads as missing on every tab. ``-/nodes`` lists the nodes the caller may see in the project (``GET /projects/{path}/nodes``, ADR-0078, 100 per page with "Load more"): name, address, tags, pool, OS, enabled and the node sets that grant each ("all" when the caller's access rules carry no sets). A filter box matches name, address, pool, OS, transport and tags by plain text or ``/regex/``. The tab needs a role on the project; with none it is absent and its URL is the not-found view. Read-only: node sets are edited in the Access tab (R7). ``-/schedules`` and ``-/webhooks`` list every schedule, or every webhook, of the
+   reads as missing on every tab. ``-/nodes`` lists the nodes the caller may see in the project (``GET /projects/{path}/nodes``, ADR-0078, 100 per page with "Load more"): name, address, tags, pool, OS, enabled and the node sets that grant each ("all" when the caller's access rules carry no sets). A filter box matches name, address, pool, OS, transport and tags by plain text or ``/regex/``. The tab needs a role on the project; with none it is absent and its URL is the not-found view. Read-only: node sets are edited in the Access tab. ``-/schedules`` and ``-/webhooks`` list every schedule, or every webhook, of the
    jobs of the project and those below it (``GET /schedules?project=``,
    ``GET /webhooks?project=``), with the job, state and next run or last use;
    everyone with a role reads them, editors pause, resume and delete schedules,
@@ -145,8 +145,19 @@ own container, so a page never scrolls sideways.
    ``-/settings`` are for the project's admins: the tabs show only with ``admin`` (``my_role`` of
    ``GET /projects/{path}``), and anyone else who types the URL gets the
    not-found view; the server checks every call again. Access lists the
-   project's rules read-only (``GET /projects/{path}/access-rules``) and, for
-   an instance admin, the effective-access check with the project filled in
+   project's rules read-only (``GET /projects/{path}/access-rules``), with the
+   node sets each rule names, and the **Node sets** editor (``NodeSetEditor``;
+   ``/projects/{path}/node-sets``, ADR-0078): the sets of the project and of its
+   ancestors (those read-only), **New node set** and Edit (name fixed) with a
+   description, a regex helper (a node field, ``name``, ``address``, ``pool`` or
+   ``os``, matches a pattern; it writes the CEL ``node.<field>.matches('...')``
+   into the raw filter, which can also be typed by hand) and **Preview matching
+   nodes**, which lists up to 200 nodes within the project's node scope that the
+   filter matches (``POST .../node-sets/preview``). A filter the server refuses
+   (``422`` at ``body.filter``) is shown with its reason and nothing is saved;
+   deleting a set a rule still names answers ``409`` and the page shows what uses
+   it. A project that apply manages shows the sets read-only. For an instance admin
+   the tab also has the effective-access check with the project filled in
    (``POST /access/check`` is instance-admin only). Settings edits the
    description (``PATCH /projects/{path}``; a project that apply manages is
    read-only) and deletes an empty project (admin on the parent, or an
@@ -499,7 +510,9 @@ a description. **Delete** shows when the caller is admin on the parent (instance
 admin for a root project). **Rules and scope** opens, for projects the caller
 administers, an editor for access rules (role select and CEL rule text, add and
 remove, Save; a server ``422`` is shown at the rule position, for example
-``body.rules[0].rule``) and the node scope (one CEL line, Save; a ``422`` is
+``body.rules[0].rule``; below a rule that is not ``admin``, one checkbox per node
+set of the project and its ancestors, none checked meaning every node of the
+project scope, and an ``admin`` rule cannot carry sets) and the node scope (one CEL line, Save; a ``422`` is
 shown). Both share the project version: after one saves, the other refetches its
 version. Controls are hidden by ``my_role`` only as a convenience; the server
 decides.
