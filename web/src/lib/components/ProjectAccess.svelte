@@ -6,8 +6,15 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
 	import { Skeleton } from '$lib/components/ui/skeleton';
+	import NodeSetEditor from '$lib/components/NodeSetEditor.svelte';
 	import { checkAccess, describeSource, splitGroups, type AccessCheck } from '$lib/access';
-	import { fetchAccess, isInstanceAdmin, problemMessage, type AccessRules } from '$lib/projects';
+	import {
+		fetchAccess,
+		fetchProject,
+		isInstanceAdmin,
+		problemMessage,
+		type AccessRules
+	} from '$lib/projects';
 
 	/**
 	 * The project's access rules, read-only, and, for an instance admin, the
@@ -17,6 +24,8 @@
 	let { path }: { path: string } = $props();
 
 	let rules = $state<AccessRules | null>(null);
+	// A project that apply manages is read-only here: its source changes it.
+	let managed = $state(false);
 	let loaded = $state(false);
 	let error = $state<string | null>(null);
 
@@ -32,6 +41,10 @@
 		loaded = false;
 		error = null;
 		result = null;
+		managed = true; // fail closed until the project says it is the UI's
+		void fetchProject(current).then(
+			(p) => current === path && (managed = (p?.managed_by ?? 'ui') !== 'ui')
+		);
 		fetchAccess(current)
 			.then((r) => current === path && (rules = r))
 			.catch((e) => current === path && (error = problemMessage(e)))
@@ -73,6 +86,7 @@
 					<Table.Row>
 						<Table.Head class="w-32">Role</Table.Head>
 						<Table.Head>Rule</Table.Head>
+						<Table.Head>Node sets</Table.Head>
 					</Table.Row>
 				</Table.Header>
 				<Table.Body>
@@ -80,10 +94,20 @@
 						<Table.Row data-testid="access-rule">
 							<Table.Cell><Badge variant="outline">{r.role}</Badge></Table.Cell>
 							<Table.Cell class="font-mono text-xs">{r.rule}</Table.Cell>
+							<Table.Cell class="text-xs" data-testid="access-rule-sets">
+								{#if (r.node_sets ?? []).length}
+									<span class="flex flex-wrap gap-1">
+										{#each r.node_sets ?? [] as ref (ref)}<Badge variant="secondary">{ref}</Badge
+											>{/each}
+									</span>
+								{:else}
+									<span class="text-muted-foreground">every node</span>
+								{/if}
+							</Table.Cell>
 						</Table.Row>
 					{:else}
 						<Table.Row>
-							<Table.Cell colspan={2} class="text-muted-foreground" data-testid="access-no-rules">
+							<Table.Cell colspan={3} class="text-muted-foreground" data-testid="access-no-rules">
 								No rules on this project; roles come from the projects above it.
 							</Table.Cell>
 						</Table.Row>
@@ -92,6 +116,8 @@
 			</Table.Root>
 		{/if}
 	</section>
+
+	<NodeSetEditor {path} readOnly={managed} />
 
 	{#if canCheck}
 		<section class="space-y-3" aria-label="Check access" data-testid="access-check">

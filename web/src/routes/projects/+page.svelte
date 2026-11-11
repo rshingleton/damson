@@ -4,6 +4,7 @@
 	import { resolve } from '$app/paths';
 	import * as Alert from '$lib/components/ui/alert';
 	import * as Dialog from '$lib/components/ui/dialog';
+	import { Checkbox } from '$lib/components/ui/checkbox';
 	import * as Table from '$lib/components/ui/table';
 	import * as Select from '$lib/components/ui/select';
 	import { Badge } from '$lib/components/ui/badge';
@@ -26,6 +27,7 @@
 		type AccessRule,
 		type Project
 	} from '$lib/projects';
+	import { fetchNodeSets, type NodeSet } from '$lib/nodesets';
 	import { projectMatcher } from '$lib/projectsearch';
 	import { projectRest } from '$lib/projectroute';
 	import { fetchLevel } from '$lib/tree';
@@ -67,6 +69,8 @@
 		editing !== null && (byPath.get(editing)?.managed_by ?? 'ui') !== 'ui'
 	);
 	let rules = $state<AccessRule[]>([]);
+	// The node sets a rule here may name: this project's and its ancestors'.
+	let availableSets = $state<NodeSet[]>([]);
 	let rulesVersion = $state(0);
 	let rulesErrors = $state<string[]>([]);
 	let nodeScope = $state('');
@@ -153,7 +157,13 @@
 		rulesErrors = [];
 		nodeScopeError = null;
 		try {
-			const [a, n] = await Promise.all([fetchAccess(path), fetchNodeScope(path)]);
+			const [a, n, ns] = await Promise.all([
+				fetchAccess(path),
+				fetchNodeScope(path),
+				// The rules do not need the sets: without them the picker is simply absent.
+				fetchNodeSets(path).catch(() => [] as NodeSet[])
+			]);
+			availableSets = ns;
 			rules = (a.rules ?? []).map((r) => ({ ...r }));
 			rulesVersion = a.version;
 			nodeScope = n.node_scope;
@@ -162,6 +172,12 @@
 			error = problemMessage(e);
 			editing = null;
 		}
+	}
+
+	function toggleSet(i: number, ref: string, on: boolean) {
+		const cur = rules[i].node_sets ?? [];
+		const next = on ? [...cur.filter((r) => r !== ref), ref] : cur.filter((r) => r !== ref);
+		rules[i].node_sets = next.length ? next : undefined;
 	}
 
 	async function saveRules() {
@@ -395,31 +411,61 @@
 					below it. Example: <code>'billing-ops' in claims.groups</code>
 				</p>
 				{#each rules as rule, i (i)}
-					<div class="flex items-center gap-2">
-						<Select.Root
-							type="single"
-							value={rule.role}
-							onValueChange={(v) => (rules[i].role = v as AccessRule['role'])}
-						>
-							<Select.Trigger data-testid="rule-role-{i}" class="w-32">{rule.role}</Select.Trigger>
-							<Select.Content>
-								{#each ROLES as r (r)}
-									<Select.Item value={r}>{r}</Select.Item>
+					<div class="space-y-1" data-testid="rule-{i}">
+						<div class="flex items-center gap-2">
+							<Select.Root
+								type="single"
+								value={rule.role}
+								onValueChange={(v) => {
+									rules[i].role = v as AccessRule['role'];
+									// An admin rule cannot carry node sets.
+									if (v === 'admin') rules[i].node_sets = undefined;
+								}}
+							>
+								<Select.Trigger data-testid="rule-role-{i}" class="w-32">{rule.role}</Select.Trigger
+								>
+								<Select.Content>
+									{#each ROLES as r (r)}
+										<Select.Item value={r}>{r}</Select.Item>
+									{/each}
+								</Select.Content>
+							</Select.Root>
+							<Input
+								class="flex-1 font-mono"
+								aria-label="Rule {i + 1}"
+								data-testid="rule-text-{i}"
+								bind:value={rules[i].rule}
+							/>
+							<Button
+								size="sm"
+								variant="outline"
+								data-testid="rule-remove-{i}"
+								onclick={() => rules.splice(i, 1)}>Remove</Button
+							>
+						</div>
+						{#if availableSets.length && rule.role !== 'admin'}
+							<div
+								class="flex flex-wrap items-center gap-3 pl-1 text-sm"
+								data-testid="rule-sets-{i}"
+							>
+								<span class="text-muted-foreground">Node sets:</span>
+								{#each availableSets as ns (ns.ref)}
+									<label class="flex items-center gap-1.5">
+										<Checkbox
+											checked={(rule.node_sets ?? []).includes(ns.ref)}
+											onCheckedChange={(v) => toggleSet(i, ns.ref, v === true)}
+											data-testid="rule-set-{i}-{ns.ref}"
+										/>
+										{ns.ref}
+									</label>
 								{/each}
-							</Select.Content>
-						</Select.Root>
-						<Input
-							class="flex-1 font-mono"
-							aria-label="Rule {i + 1}"
-							data-testid="rule-text-{i}"
-							bind:value={rules[i].rule}
-						/>
-						<Button
-							size="sm"
-							variant="outline"
-							data-testid="rule-remove-{i}"
-							onclick={() => rules.splice(i, 1)}>Remove</Button
-						>
+								<span class="text-xs text-muted-foreground">
+									{(rule.node_sets ?? []).length
+										? ''
+										: 'none checked: every node of the project scope'}
+								</span>
+							</div>
+						{/if}
 					</div>
 				{/each}
 				<div class="flex gap-2">
