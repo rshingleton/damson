@@ -1,6 +1,7 @@
 ---
 title: Project pages, Jenkins-style overview and ACL-filtered nodes
 approved: 2026-11-10
+completed: 2026-11-10
 ---
 
 # Project pages, Jenkins-style overview and ACL-filtered nodes
@@ -53,7 +54,7 @@ Exit: a member of `acme-ops` sees only the nodes of their set on the `acme` Node
 - Removing the `/projects` page, the `/jobs` route or any REST API route.
 - Service-account nodes; agent pools.
 
-## Changes
+## Shipped
 - 2026-11-10 R7 shipped: Access tab edits node sets (regex helper, raw CEL, preview) and the rules editor on `/projects` attaches sets to rules; verified in the OIDC suite with dave (admin) and bob.
 - 2026-11-10 R6 shipped: project Nodes tab lists the nodes the caller may see, with the sets that grant each; verified in the OIDC suite with bob, carol and frank.
 - 2026-11-10 R5 shipped: runs, schedules and webhooks carry the creator's node sets (side tables, migration 00026); targets and dispatch honour them; a hidden node is `unknown node`.
