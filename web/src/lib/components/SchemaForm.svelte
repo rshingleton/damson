@@ -2,7 +2,7 @@
 	// The one place a JSON Schema becomes a form (CLAUDE.md, frontend rules). It
 	// wraps @sjsf/form with its basic theme and the Ajv validator. Plugins never
 	// get UI code of their own: their forms come from their schemas through here.
-	import { createForm, BasicForm, updateErrors, type Schema } from '@sjsf/form';
+	import { createForm, BasicForm, ON_INPUT, updateErrors, type Schema } from '@sjsf/form';
 	import { resolver } from '@sjsf/form/resolvers/compat';
 	import { translation } from '@sjsf/form/translations/en';
 	import { createFormMerger } from '@sjsf/form/mergers/modern';
@@ -16,12 +16,15 @@
 		schema,
 		initial = {},
 		errors = {},
+		busy = false,
 		onsubmit
 	}: {
 		schema: Record<string, unknown>;
 		initial?: Record<string, unknown>;
 		/** Errors the server found, by top-level property name; shown beside the field. */
 		errors?: Record<string, string[]>;
+		/** True while the caller handles a submit: the form is disabled, so it cannot be sent twice. */
+		busy?: boolean;
 		onsubmit: (values: Record<string, unknown>) => void;
 	} = $props();
 
@@ -37,10 +40,15 @@
 		merger: createFormMerger,
 		validator: createFormValidator,
 		idBuilder: createFormIdBuilder,
+		fieldsValidationMode: ON_INPUT,
+		get disabled() {
+			return busy;
+		},
 		onSubmit: (value: unknown) => onsubmit((value ?? {}) as Record<string, unknown>)
 	});
 
-	// Server findings go beside their fields, on top of what the form checked itself.
+	// Server findings go beside their fields, on top of what the form checked itself. Editing
+	// a field checks it again (fieldsValidationMode), which replaces what the server said of it.
 	$effect(() => {
 		const list = Object.entries(errors).flatMap(([name, messages]) =>
 			messages.map((message) => ({ path: [name], message }))

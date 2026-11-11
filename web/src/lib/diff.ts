@@ -42,3 +42,16 @@ export function lineDiff(a: string, b: string): DiffLine[] | null {
 export function specText(spec: unknown): string {
 	return JSON.stringify(spec, null, 2);
 }
+
+/**
+ * What a diff means for two versions: changed lines, identical content (same checksum), or
+ * no changed lines but a different checksum, so only formatting differs.
+ */
+export function compareOutcome(
+	diff: DiffLine[],
+	checksumA: string,
+	checksumB: string
+): 'changed' | 'identical' | 'formatting' {
+	if (diff.some((l) => l.kind !== 'same')) return 'changed';
+	return checksumA === checksumB ? 'identical' : 'formatting';
+}

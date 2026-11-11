@@ -131,3 +131,46 @@ test('audit page: actor filter and system rows hidden until toggled', async ({ p
 	await expect(page.getByTestId('audit-row')).toHaveCount(3);
 	expect(urls.at(-1)).toContain('hide_system=true');
 });
+
+// Load more pages the filter that is applied, not what has been typed since.
+test('audit page: load more keeps the applied filter', async ({ page }) => {
+	const urls: string[] = [];
+	await page.route('**/api/v1/audit**', (r) => {
+		const u = new URL(r.request().url());
+		urls.push(r.request().url());
+		const more = u.searchParams.get('cursor') === 'c2';
+		return r.fulfill({
+			json: {
+				items: [
+					{
+						id: more ? '2' : '1',
+						at: '2026-01-02T03:04:05Z',
+						actor: 'user:u1',
+						action: 'job.create',
+						target_type: 'job',
+						target: more ? 't2' : 't1',
+						details: {}
+					}
+				],
+				...(more ? {} : { next_cursor: 'c2' })
+			}
+		});
+	});
+
+	await page.goto('/audit');
+	await page.getByLabel('Admin token').fill('dma_good');
+	await page.getByRole('button', { name: 'Use token' }).click();
+	await expect(page.getByTestId('audit-row')).toHaveCount(1);
+
+	await page.getByLabel('Action').fill('job.create');
+	await page.getByRole('button', { name: 'Filter' }).click();
+	await expect.poll(() => urls.at(-1)).toContain('action=job.create');
+
+	// Typed but not applied.
+	await page.getByLabel('Action').fill('run.cancel');
+	await page.getByTestId('audit-more').click();
+	await expect(page.getByTestId('audit-row')).toHaveCount(2);
+	expect(urls.at(-1)).toContain('cursor=c2');
+	expect(urls.at(-1)).toContain('action=job.create');
+	expect(urls.at(-1)).not.toContain('run.cancel');
+});

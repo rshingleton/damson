@@ -71,7 +71,7 @@
 				</Alert.Root>
 			{/if}
 			{#if schema && hasFields(schema)}
-				<SchemaForm {schema} errors={fieldErrors} onsubmit={start} />
+				<SchemaForm {schema} errors={fieldErrors} {busy} onsubmit={start} />
 			{:else}
 				<p class="text-sm text-muted-foreground">This job takes no options.</p>
 				<Button data-testid="run-confirm" disabled={busy} onclick={() => start({})}

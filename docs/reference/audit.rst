@@ -128,8 +128,9 @@ Who can read
 ------------
 
 ``GET /api/v1/audit`` filters: ``project``, ``target_type``, ``target``,
-``action`` and ``actor`` (exact), ``from`` (inclusive) and ``to`` (exclusive)
-as RFC 3339 times, ``hide_system`` (``true`` leaves out ``system:*`` actors),
+``action`` (exact), ``actor`` (matches the actor id exactly, or the actor's
+display name ignoring case), ``from`` (inclusive) and ``to`` (exclusive)
+as RFC 3339 times (``from`` later than ``to`` is a 400), ``hide_system`` (``true`` leaves out ``system:*`` actors),
 ``cursor``, ``limit`` (1 to 200, default 50). Newest first. The Audit page
 shows ``actor_name`` (the id as a tooltip), offers the actions and actors it
 has seen, and hides system events until you turn them on.

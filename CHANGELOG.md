@@ -58,6 +58,11 @@ behavior; read the notes before upgrading.
 
 ### Fixed
 
+- Retry and stale-state bugs in the UI: after a version conflict the job editor and project settings offer a reload and the next save succeeds; `/jobs/<id>` and run pages show an error with Retry instead of a blank page; the project table poll keeps rows loaded with More; triggers, jobs lists, step panel and the run dialog no longer show another page's data or lose input to a late response. Version history follows the cursor so the current version is always listed, the log viewer handles extended ANSI colours and malformed payloads and caps a row at 10 000 characters, and an agent counts as stale after 40 s measured against the server clock.
+  - Backend: `GET /api/v1/access/me` reports `truncated` instead of silently cutting rules; `check-access` answers 400 for both `project` and `job_id`; the audit list answers 400 when `from` is later than `to`, `hide_system` ignores case, and the `actor` filter matches the actor id exactly or the display name ignoring case; `GET /api/v1/runs?project=` works for a service token scoped to that project.
+  - Admin pages have a `<main>` landmark and one active-link rule for highlight and `aria-current`; dead helpers and old-URL links left from the project-first shell are removed; the tree counts query plan is recorded in ADR-0075 (SQLite measured; Postgres pending).
+  - Known limits: Postgres was not run for these changes; audit name matching folds ASCII case only on SQLite; a `(status, finished_at)` index for the counts query needs an architect decision.
+
 - The run graph no longer lets a step box overlap the next one or the end node when badges (when, retry, status, attempt, lanes) wrap: a step is as tall as its badges need.
 
 ## [0.1.0] - 2026-11-10

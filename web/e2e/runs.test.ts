@@ -113,8 +113,19 @@ const sse = (events: [string, unknown][]) =>
 		.map(([name, data], i) => `id: ${i + 1}\nevent: ${name}\ndata: ${JSON.stringify(data)}\n\n`)
 		.join('');
 
+// RunView reads the run, then its job's project, before it loads the graph.
+async function mockRunHead(page: import('@playwright/test').Page, id: string) {
+	await page.route(`**/api/v1/runs/${id}`, (route) =>
+		route.fulfill({ json: { id, job_id: 'mock-job', job_version: 1, status: 'running' } })
+	);
+	await page.route('**/api/v1/jobs/mock-job', (route) =>
+		route.fulfill({ status: 404, json: { title: 'Not Found', status: 404 } })
+	);
+}
+
 test('many lanes are summarized and the instance list is bounded', async ({ page }) => {
 	const steps = lanesSteps(250);
+	await mockRunHead(page, 'mock');
 	await page.route('**/api/v1/runs/mock/graph', (route) =>
 		route.fulfill({ json: { graph: lanesGraph, steps } })
 	);
@@ -148,6 +159,7 @@ test('many lanes are summarized and the instance list is bounded', async ({ page
 
 test('a refused stream is reopened', async ({ page }) => {
 	const steps = lanesSteps(1);
+	await mockRunHead(page, 'flaky');
 	await page.route('**/api/v1/runs/flaky/graph', (route) =>
 		route.fulfill({ json: { graph: lanesGraph, steps: [] } })
 	);
@@ -391,4 +403,45 @@ test('a step panel shows its attempts; the log follows the step and filters by s
 	);
 	await expect(page.getByTestId('log-row')).toHaveCount(1);
 	await expect(page.getByTestId('log-row')).toContainText('beta only');
+});
+
+test('switching step shows nothing of the previous step until its own data arrives', async ({
+	page
+}) => {
+	const id = await trigger(page, 'panel-switch-e2e', [
+		step('alpha'),
+		step('beta', { when: 'always()' })
+	]);
+	await page.goto(`/runs/${id}`);
+	await expect(page.getByTestId('run-status')).toHaveText('failed');
+	const row = (path: string) => page.locator(`[data-testid="instance-row"][data-path="${path}"]`);
+	await row('alpha').getByTestId('open-log').click();
+	await expect(page.getByTestId('step-status')).toHaveText('failed');
+
+	let release: () => void = () => {};
+	const held = new Promise<void>((res) => (release = res));
+	await page.route(`**/api/v1/runs/${id}`, async (route) => {
+		await held;
+		return route.continue();
+	});
+	await row('beta').getByTestId('open-log').click();
+	await expect(page.getByTestId('step-path')).toHaveText('beta');
+	await expect(page.getByTestId('step-status')).toHaveCount(0);
+	release();
+	await expect(page.getByTestId('step-status')).toHaveText('failed');
+});
+
+test('a step the run does not have reads as not found', async ({ page }) => {
+	const id = await trigger(page, 'panel-missing-e2e', [step('alpha')]);
+	await page.goto(`/runs/${id}`);
+	await expect(page.getByTestId('run-status')).toHaveText('failed');
+	// the run is read again for the panel, and no longer lists the step
+	await page.route(`**/api/v1/runs/${id}`, async (route) => {
+		const res = await route.fetch();
+		const body = await res.json();
+		return route.fulfill({ response: res, json: { ...body, steps: [] } });
+	});
+	await page.getByTestId('open-log').first().click();
+	await expect(page.getByTestId('step-missing')).toBeVisible();
+	await expect(page.getByTestId('step-status')).toHaveCount(0);
 });

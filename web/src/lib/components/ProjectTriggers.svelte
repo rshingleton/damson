@@ -52,7 +52,12 @@
 	let busy = $state(false);
 	let error = $state<string | null>(null);
 
+	// Each load takes a number; only the newest may apply, so a poll that was in flight
+	// when an action finished cannot put the old list back.
+	let latest = 0;
+
 	async function load(signal?: AbortSignal) {
+		const mine = ++latest;
 		try {
 			const [rows, byId] = await Promise.all([
 				kind === 'schedules'
@@ -60,15 +65,15 @@
 					: fetchProjectWebhooks(token, path),
 				fetchProjectJobs(path, signal)
 			]);
-			if (signal?.aborted) return;
+			if (signal?.aborted || mine !== latest) return;
 			if (kind === 'schedules') schedules = rows as Schedule[];
 			else webhooks = rows as Webhook[];
 			jobs = byId;
 			error = null;
 		} catch (e) {
-			if (!signal?.aborted) error = problemMessage(e);
+			if (!signal?.aborted && mine === latest) error = problemMessage(e);
 		} finally {
-			if (!signal?.aborted) loaded = true;
+			if (!signal?.aborted && mine === latest) loaded = true;
 		}
 	}
 
@@ -156,9 +161,11 @@
 						</Table.Cell>
 					</Table.Row>
 				{:else}
-					<Table.Row>
-						<Table.Cell colspan={6} class="text-muted-foreground">No schedules.</Table.Cell>
-					</Table.Row>
+					{#if !error}
+						<Table.Row>
+							<Table.Cell colspan={6} class="text-muted-foreground">No schedules.</Table.Cell>
+						</Table.Row>
+					{/if}
 				{/each}
 			</Table.Body>
 		</Table.Root>
@@ -206,9 +213,11 @@
 						</Table.Cell>
 					</Table.Row>
 				{:else}
-					<Table.Row>
-						<Table.Cell colspan={5} class="text-muted-foreground">No webhooks.</Table.Cell>
-					</Table.Row>
+					{#if !error}
+						<Table.Row>
+							<Table.Cell colspan={5} class="text-muted-foreground">No webhooks.</Table.Cell>
+						</Table.Row>
+					{/if}
 				{/each}
 			</Table.Body>
 		</Table.Root>

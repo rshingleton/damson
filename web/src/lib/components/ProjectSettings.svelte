@@ -12,6 +12,7 @@
 		deleteProject,
 		fetchProject,
 		fetchProjects,
+		isConflict,
 		parentOf,
 		problemMessage,
 		updateProjectDescription,
@@ -63,6 +64,11 @@
 			saved = true;
 		} catch (e) {
 			error = problemMessage(e);
+			// Someone else saved first: take the new version so a retry is not refused again.
+			if (isConflict(e)) {
+				const latest = await fetchProject(path).catch(() => null);
+				if (latest) project = latest;
+			}
 		} finally {
 			busy = false;
 		}

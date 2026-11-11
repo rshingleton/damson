@@ -39,7 +39,8 @@ type MyAccessItem struct {
 
 type myAccessOutput struct {
 	Body struct {
-		Items []MyAccessItem `json:"items" doc:"Projects first, ordered by path, then jobs reached only through a rule of the job."`
+		Items     []MyAccessItem `json:"items" doc:"Projects first, ordered by path, then jobs reached only through a rule of the job."`
+		Truncated bool           `json:"truncated,omitempty" doc:"More jobs carry rules than were searched; some jobs shared through a rule of the job may be missing."`
 	}
 }
 
@@ -77,8 +78,8 @@ func registerAccessCheck(api huma.API, d deps) {
 		OperationID: "check-access", Method: http.MethodPost, Path: "/access/check", Tags: []string{"auth"}, Security: adminSecurity,
 		Middlewares: huma.Middlewares{requireAdmin(api, d)},
 		Summary:     "Why an identity has, or lacks, a role (instance admin)",
-		Description: "Evaluates the access rules for the given groups and email with the evaluator that enforces them, and names the rule that granted the role. The instance admin rule is evaluated at login and is not part of this. The check is audited as access.check, with counts, never the groups or the email.",
-		Errors:      []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusUnprocessableEntity, http.StatusServiceUnavailable},
+		Description: "Name a project or a job, not both: a job is checked in its own project. Evaluates the access rules for the given groups and email with the evaluator that enforces them, and names the rule that granted the role. The instance admin rule is evaluated at login and is not part of this. The check is audited as access.check, with counts, never the groups or the email.",
+		Errors:      []int{http.StatusBadRequest, http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusUnprocessableEntity, http.StatusServiceUnavailable},
 	}, func(ctx context.Context, in *accessCheckInput) (*accessCheckOutput, error) {
 		return checkAccess(ctx, d, in)
 	})
@@ -114,12 +115,15 @@ func sourceOf(g policy.Grant, target string, paths []string) *AccessSource {
 }
 
 func getMyAccess(ctx context.Context, d deps) (*myAccessOutput, error) {
+	p, ok := PrincipalFrom(ctx)
+	if !ok { // no principal is not "no roles"
+		return nil, newHumaError(http.StatusUnauthorized, "authentication required")
+	}
 	if err := d.ready(); err != nil {
 		return nil, apiError(ctx, err)
 	}
 	out := &myAccessOutput{}
 	out.Body.Items = []MyAccessItem{}
-	p, _ := PrincipalFrom(ctx)
 	all, err := d.ds.ListProjects(ctx)
 	if err != nil {
 		return nil, apiError(ctx, err)
@@ -151,40 +155,44 @@ func getMyAccess(ctx context.Context, d deps) (*myAccessOutput, error) {
 			}
 			out.Body.Items = append(out.Body.Items, MyAccessItem{Project: pr.Path, Role: g.Role, Source: *sourceOf(g, pr.Path, paths)})
 		}
-		shared, err := d.sharedFor(ctx, p, byPath)
+		shared, truncated, err := d.sharedFor(ctx, p, byPath)
 		if err != nil {
 			return nil, apiError(ctx, err)
 		}
 		out.Body.Items = append(out.Body.Items, shared...)
+		out.Body.Truncated = truncated
 	}
 	return out, nil
 }
 
 // sharedFor is the jobs the session user reaches only through a rule of the job.
-func (d deps) sharedFor(ctx context.Context, p Principal, byPath map[string]store.Project) ([]MyAccessItem, error) {
+// truncated says more jobs carry rules than maxJobRuleScan, so some may be missing.
+func (d deps) sharedFor(ctx context.Context, p Principal, byPath map[string]store.Project) (items []MyAccessItem, truncated bool, err error) {
 	v, err := d.visibleScope(ctx, p)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	pathOf := make(map[string]string, len(byPath))
 	for path, pr := range byPath {
 		pathOf[pr.ID] = path
 	}
-	rows, err := d.ds.ListJobRules(ctx, maxJobRuleScan)
+	rows, err := d.ds.ListJobRules(ctx, maxJobRuleScan+1)
 	if err != nil {
-		return nil, err
+		return nil, false, err
+	}
+	if len(rows) > maxJobRuleScan {
+		rows, truncated = rows[:maxJobRuleScan], true
 	}
 	id := d.identityOf(p.Session)
-	var out []MyAccessItem
 	for _, r := range rows {
 		if v.sees(pathOf[r.ProjectID]) {
 			continue
 		}
 		if g := d.policy.Explain(id, r.Rules); g.Role != "" {
-			out = append(out, MyAccessItem{JobID: r.JobID, Name: r.Name, Role: g.Role, Source: AccessSource{Kind: "job", RuleIndex: g.Index}})
+			items = append(items, MyAccessItem{JobID: r.JobID, Name: r.Name, Role: g.Role, Source: AccessSource{Kind: "job", RuleIndex: g.Index}})
 		}
 	}
-	return out, nil
+	return items, truncated, nil
 }
 
 func checkAccess(ctx context.Context, d deps, in *accessCheckInput) (*accessCheckOutput, error) {
@@ -207,6 +215,9 @@ func checkAccess(ctx context.Context, d deps, in *accessCheckInput) (*accessChec
 			groups = append(groups, g)
 		}
 	}
+	if b.JobID != "" && b.Project != "" { // a job is checked in its own project: two answers would be ambiguous
+		return nil, newHumaError(http.StatusBadRequest, "name a project or a job, not both")
+	}
 	project := b.Project
 	var jobRules []store.AccessRule
 	jobID := b.JobID
@@ -219,7 +230,6 @@ func checkAccess(ctx context.Context, d deps, in *accessCheckInput) (*accessChec
 		if err != nil {
 			return nil, apiError(ctx, err)
 		}
-		project = "" // a job is checked in its own project, whatever the body says
 		for _, pr := range all {
 			if pr.ID == job.ProjectID {
 				project = pr.Path
@@ -242,7 +252,7 @@ func checkAccess(ctx context.Context, d deps, in *accessCheckInput) (*accessChec
 		byPath[pr.Path] = pr
 	}
 	if _, ok := byPath[project]; !ok {
-		return nil, apiError(ctx, store.ErrNotFound)
+		return nil, newHumaError(http.StatusNotFound, "no project named "+project)
 	}
 	lists, paths := chainRules(byPath, project)
 	rules := 0

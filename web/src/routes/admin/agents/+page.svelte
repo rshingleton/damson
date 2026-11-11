@@ -23,7 +23,7 @@
 	let agents = $state<Agent[]>([]);
 	let moreAgents = $state(false);
 	let morePools = $state(false);
-	let now = $state(Date.now()); // the time health is judged at, moved by each refresh
+	let now = $state(Date.now()); // server time health is judged at, moved by each refresh
 	let loaded = $state(false);
 	let error = $state<string | null>(null);
 
@@ -45,7 +45,7 @@
 			pools = p.items;
 			morePools = p.more;
 			agents = a.items;
-			now = Date.now();
+			now = Date.now() + a.clockOffset;
 			moreAgents = a.more;
 			error = null;
 		} catch (e) {
@@ -67,7 +67,7 @@
 	<title>Agents - Damson</title>
 </svelte:head>
 
-<main class="mx-auto max-w-6xl space-y-6 px-4 py-8">
+<div class="mx-auto max-w-6xl space-y-6 px-4 py-8">
 	<h1 class="text-2xl font-semibold">Agents</h1>
 
 	{#if error}
@@ -165,11 +165,15 @@
 													: h === 'stale'
 														? 'destructive'
 														: 'outline'}
-												title={h === 'stale'
-													? 'Connected, but not heard from in over 30 seconds'
-													: undefined}
 												data-testid="agent-health">{h}</Badge
 											>
+											{#if h === 'stale'}
+												<span
+													class="block text-xs text-muted-foreground"
+													data-testid="agent-stale-note"
+													>Connected, but not heard from for 40 seconds or more</span
+												>
+											{/if}
 										</Table.Cell>
 										<Table.Cell>{poolName(a.pool_id)}</Table.Cell>
 										<Table.Cell>{t?.free_slots ?? '-'} / {a.capacity}</Table.Cell>
@@ -199,4 +203,4 @@
 			</Card.Content>
 		</Card.Root>
 	{/if}
-</main>
+</div>

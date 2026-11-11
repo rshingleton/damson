@@ -28,8 +28,10 @@ root of the user's tree; no stub is made for the parent.
 **One helper.** A single ``visibleScope(principal)`` in ``internal/api`` returns
 the project roles (today's ``projectRoles``) and the jobs reached only through
 job rules. R4, R5, R8, R9 and R12 call it and nothing else decides visibility.
-It is cached per session under the existing grant cache (60 s, cleared by rule
-edits).
+For a session without the instance-admin role it is cached per session under
+the existing grant cache (60 s, cleared by rule edits). An instance admin or a
+bearer token has no cache entry: its roles are computed on every request, which
+is one ``roleOn`` call per project and no database query beyond ``ListProjects``.
 
 **Tree response.** ``GET /api/v1/tree`` returns one level, keyset-paged by path (``cursor`` is the
 last path returned, ``limit`` is clamped like other lists):
@@ -48,18 +50,48 @@ last path returned, ``limit`` is clamped like other lists):
 visible but a job rule grants a role. Items carry the job name and role only,
 never the project path or its siblings, and are not counted in any tree node.
 
-**Roll-ups.** One grouped query per request, not per node. ``:since`` goes
-through ``store.NormalizeTime`` (SQLite stores fixed-width text, so the compare
-must be on the same format). ``runs_finished_idx`` serves the failed rows and
-``runs_status_idx`` the running ones. The ``jobs`` count is a second grouped
-query, ``SELECT project_id, count(*) FROM jobs GROUP BY project_id``::
+**Roll-ups.** One grouped query per request, not per node, and none for a page
+that lists no projects (a project with no visible child, or a caller who sees
+none): ``getTree`` reads the counts lazily, when it adds the first project to
+the page. ``:since`` is the cutoff passed through ``store.NormalizeTime`` (UTC,
+truncated to microseconds): ``fmtTime`` does it for SQLite, which stores
+fixed-width text, so the compare is on the same format, and ``ts`` does it for
+Postgres. Archived jobs and their runs are left out. The ``jobs`` count is a
+second grouped query, ``SELECT project_id, count(*) FROM jobs WHERE archived_at
+IS NULL GROUP BY project_id``. Both backends fold the two result sets into
+``ProjectCounts`` with the one ``store.CountsFold``::
 
    SELECT j.project_id, r.status, count(*) FROM runs r JOIN jobs j ON j.id = r.job_id
-   WHERE (r.status = 'failed' AND r.finished_at >= :since) OR r.status = 'running'
+   WHERE j.archived_at IS NULL
+     AND ((r.status = 'failed' AND r.finished_at >= :since) OR r.status = 'running')
    GROUP BY j.project_id, r.status
 
 It is portable (``queries/shared``). Go adds each group to the project and to
 every ancestor that is in the visible set, so nothing counts twice.
+
+**Plan at 100 000 runs.** The original text said ``runs_finished_idx`` serves
+the failed rows. It does not: that index is partial (terminal statuses only) and
+ordered ``(finished_at, id)``, and the planner never picks it for this
+predicate. SQLite 100 000 runs (200 jobs, 4 % failed spread over 30 days, 100
+running), after ``ANALYZE``::
+
+   MULTI-INDEX OR
+     INDEX 1  SEARCH r USING INDEX runs_status_idx (status=?)
+     INDEX 2  SEARCH r USING INDEX runs_status_idx (status=?)
+   BLOOM FILTER ON j (id=?)
+   SEARCH j USING INDEX sqlite_autoindex_jobs_1 (id=?)
+   USE TEMP B-TREE FOR GROUP BY
+
+No table scan: both arms are index searches on ``status``, about 4.8 ms. A
+``UNION ALL`` of two selects was tried and planned the same arms but added an
+automatic index on the joined set, with the same 4.8 ms, so the single select
+stays. The cost is proportional to the number of failed runs ever recorded, not
+to the 24 hours, because the index carries no ``finished_at``; a
+``(status, finished_at)`` index would bound it, but it is a migration on both
+databases and is not added without an architect decision (left open).
+**Postgres was not measured** for this change (no Docker on the machine): its
+plan at 100 000 runs is pending, to be recorded here from ``make test-pg``'s
+database before anyone adds an index. A counts cache stays out of scope.
 
 **Job-rule lookup.** ``SELECT ja.job_id, ja.rules, j.project_id FROM job_access ja
 JOIN jobs j ON j.id = ja.job_id WHERE ja.rules <> '[]' ORDER BY ja.job_id

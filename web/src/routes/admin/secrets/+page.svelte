@@ -191,7 +191,7 @@
 	<title>Secrets - Damson</title>
 </svelte:head>
 
-<main class="mx-auto max-w-6xl space-y-6 px-4 py-8">
+<div class="mx-auto max-w-6xl space-y-6 px-4 py-8">
 	<div class="flex items-center justify-between">
 		<h1 class="text-2xl font-semibold">Secrets</h1>
 		{#if token}
@@ -367,4 +367,4 @@
 			</Table.Root>
 		{/if}
 	{/if}
-</main>
+</div>

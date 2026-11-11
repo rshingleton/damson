@@ -60,11 +60,11 @@ function refused(error: unknown): never {
 	throw error ?? new Error('Empty response');
 }
 
-/** Creates a job from the spec; resolves to its id. */
-export async function createJob(text: string): Promise<string> {
+/** Creates a job from the spec; resolves to its id and project. */
+export async function createJob(text: string): Promise<{ id: string; project: string }> {
 	const { data, error } = await api.POST('/jobs', { body: { spec: parseSpec(text) } });
 	if (error !== undefined || !data) refused(error);
-	return data.job.id;
+	return { id: data.job.id, project: data.job.project };
 }
 
 /** Adds a version based on `expected`; a stale one is a 409 the caller shows. */

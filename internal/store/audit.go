@@ -57,7 +57,8 @@ type AuditFilter struct {
 	// HideSecrets leaves out the secret.* events (names, field names and refs),
 	// which only instance admins may read.
 	HideSecrets bool
-	// Action and Actor select one action or one actor id exactly; empty is any.
+	// Action selects one action exactly. Actor selects events whose actor id or
+	// actor display name equals it, ignoring case. Empty is any.
 	Action string
 	Actor  string
 	// HideSystem leaves out the events of system:* actors (dispatch reads and

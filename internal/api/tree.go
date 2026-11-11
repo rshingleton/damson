@@ -190,12 +190,9 @@ func getTree(ctx context.Context, d deps, in *treeInput) (*treeOutput, error) {
 	out := &treeOutput{}
 	out.Body.Projects = []TreeProject{}
 	out.Body.Jobs = []TreeJob{}
-	totals, err := d.rollups(ctx, v)
-	if err != nil {
-		return nil, apiError(ctx, err)
-	}
 	kids := v.children(in.Parent)
 	sort.Slice(kids, func(i, j int) bool { return kids[i].Path < kids[j].Path })
+	var totals map[string]store.ProjectCounts
 	for _, k := range kids {
 		if k.Path <= cursor {
 			continue
@@ -207,6 +204,11 @@ func getTree(ctx context.Context, d deps, in *treeInput) (*treeOutput, error) {
 		label := k.Path
 		if in.Parent != "" {
 			label = k.Path[len(in.Parent)+1:]
+		}
+		if totals == nil { // the grouped counts are read only for a page that has projects
+			if totals, err = d.rollups(ctx, v); err != nil {
+				return nil, apiError(ctx, err)
+			}
 		}
 		c := totals[k.Path]
 		out.Body.Projects = append(out.Body.Projects, TreeProject{

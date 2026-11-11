@@ -100,6 +100,7 @@ func Run(t *testing.T, f Factory) {
 		{"JobRunStats", testJobRunStats},
 		{"AccessRaces", testAccessRaces},
 		{"AuditSubtreeAndNames", testAuditSubtreeAndNames},
+		{"AuditCaseInsensitiveActors", testAuditCaseInsensitiveActors},
 		{"JobAudit", testJobAudit},
 		{"ProjectNodeScope", testProjectNodeScope},
 		{"Sessions", testSessions},

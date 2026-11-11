@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/ui/button';
-	import { lineDiff, specText, type DiffLine } from '$lib/diff';
+	import { compareOutcome, lineDiff, specText, type DiffLine } from '$lib/diff';
 	import { fetchVersions, fetchVersionSpec, problemMessage, type JobVersionInfo } from '$lib/jobs';
 
 	/** The versions of a job and a line diff between any two of them. */
@@ -11,6 +11,8 @@
 	let to = $state(0);
 	let diff = $state<DiffLine[] | null>(null);
 	let tooBig = $state(false);
+	let outcome = $state<'changed' | 'identical' | 'formatting'>('changed');
+	let compared = $state<{ from: number; to: number } | null>(null);
 	let error = $state<string | null>(null);
 	let busy = $state(false);
 
@@ -31,6 +33,10 @@
 	async function compare() {
 		busy = true;
 		error = null;
+		// A failed compare must not leave the previous diff on screen under the new selection.
+		diff = null;
+		tooBig = false;
+		compared = null;
 		try {
 			const [a, b] = await Promise.all([
 				fetchVersionSpec(jobId, from),
@@ -39,6 +45,11 @@
 			const d = lineDiff(specText(a), specText(b));
 			tooBig = d === null;
 			diff = d;
+			compared = { from, to };
+			if (d) {
+				const sum = (n: number) => versions.find((v) => v.version === n)?.checksum ?? '';
+				outcome = compareOutcome(d, sum(from), sum(to));
+			}
 		} catch (e) {
 			error = problemMessage(e);
 		} finally {
@@ -99,14 +110,25 @@
 		<p class="text-sm text-muted-foreground" data-testid="diff-too-big">
 			These specs are too long to compare here.
 		</p>
-	{:else if diff}
-		{#if diff.every((l) => l.kind === 'same')}
+	{:else if diff && compared}
+		{#if outcome === 'identical'}
 			<p class="text-sm text-muted-foreground" data-testid="diff-same">
-				The two versions are identical.
+				v{compared.from} and v{compared.to} have identical content.
+			</p>
+		{:else if outcome === 'formatting'}
+			<p class="text-sm text-muted-foreground" data-testid="diff-same">
+				No content change from v{compared.from} to v{compared.to}; formatting differs.
 			</p>
 		{:else}
+			<p class="text-sm" data-testid="diff-caption">
+				Changes from v{compared.from} to v{compared.to}
+			</p>
+			<!-- A scrollable region must take focus to scroll by keyboard. -->
+			<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 			<pre
 				class="max-h-96 overflow-auto rounded-md border bg-muted/30 p-2 text-xs"
+				tabindex="0"
+				aria-label={`Changes from v${compared.from} to v${compared.to}`}
 				data-testid="diff">{#each diff as l, i (i)}<span
 						class={l.kind === 'added'
 							? 'block bg-green-100 text-green-900 dark:bg-green-950 dark:text-green-200'

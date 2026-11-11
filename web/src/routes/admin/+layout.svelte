@@ -23,6 +23,7 @@
 		{ href: '/admin/log-purge', label: 'Log purge', id: 'log-purge' }
 	] as const;
 	const here = $derived(page.url.pathname);
+	const active = (href: string) => here === href || here.startsWith(href + '/');
 </script>
 
 {#if !isInstanceAdmin()}
@@ -42,15 +43,15 @@
 				{#each items as item (item.id)}
 					<a
 						class="rounded px-3 py-1.5 text-sm hover:bg-muted"
-						class:bg-muted={here === item.href || here.startsWith(item.href + '/')}
-						class:font-medium={here === item.href || here.startsWith(item.href + '/')}
-						aria-current={here === item.href ? 'page' : undefined}
+						class:bg-muted={active(item.href)}
+						class:font-medium={active(item.href)}
+						aria-current={active(item.href) ? 'page' : undefined}
 						href={resolve(item.href)}
 						data-testid="admin-nav-{item.id}">{item.label}</a
 					>
 				{/each}
 			</nav>
 		</aside>
-		<div class="min-w-0 flex-1">{@render children()}</div>
+		<main class="min-w-0 flex-1">{@render children()}</main>
 	</div>
 {/if}

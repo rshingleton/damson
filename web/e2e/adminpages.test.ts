@@ -141,3 +141,21 @@ test('secrets page: copy reference puts the reference, never a value, on the cli
 		'secret://team/db-password'
 	);
 });
+
+test('admin nav: a nested page keeps its section marked current, inside one main landmark', async ({
+	page
+}) => {
+	await page.route('**/api/v1/nodes**', (r) =>
+		r.fulfill({
+			status: 404,
+			contentType: 'application/problem+json',
+			body: JSON.stringify({ title: 'Not Found', status: 404 })
+		})
+	);
+	await page.goto('/admin/nodes/web-1');
+	await expect(page.getByTestId('admin-nav-nodes')).toHaveAttribute('aria-current', 'page');
+	await expect(page.getByTestId('admin-nav-agents')).not.toHaveAttribute('aria-current', /.*/);
+	await expect(page.locator('main')).toHaveCount(1);
+	await page.goto('/admin/log-purge');
+	await expect(page.locator('main')).toHaveCount(1);
+});

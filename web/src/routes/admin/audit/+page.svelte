@@ -28,6 +28,9 @@
 	let loadingMore = $state(false);
 	let error = $state<string | null>(null);
 	let filter = $state(emptyFilter());
+	// The filter the shown rows were fetched with: Load more pages that one, not
+	// whatever has been typed into the inputs since.
+	let applied = $state(emptyFilter());
 	// Choices offered for action and actor: every value seen so far, so a filter
 	// does not shrink its own list.
 	let actions = $state<string[]>([]);
@@ -40,7 +43,8 @@
 		}
 		if (more) loadingMore = true;
 		try {
-			const page = await fetchAudit(token, filter, more ? next : '');
+			if (!more) applied = { ...filter };
+			const page = await fetchAudit(token, applied, more ? next : '');
 			events = more ? [...events, ...page.items] : page.items;
 			next = page.next;
 			actions = [...new Set([...actions, ...distinct(page.items, 'action')])].sort();
@@ -107,7 +111,7 @@
 
 <svelte:head><title>Audit - Damson</title></svelte:head>
 
-<main class="mx-auto max-w-6xl space-y-6 px-4 py-8">
+<div class="mx-auto max-w-6xl space-y-6 px-4 py-8">
 	<div class="flex items-center justify-between">
 		<h1 class="text-2xl font-semibold">Audit</h1>
 		{#if token}
@@ -259,4 +263,4 @@
 			{/if}
 		{/if}
 	{/if}
-</main>
+</div>

@@ -115,3 +115,62 @@ test('a job lists its versions, compares two, and a run names the version it ran
 	await page.goto(`/runs/${(await run2.json()).id}`);
 	await expect(page.getByTestId('run-version')).toHaveText('job version 2');
 });
+
+test('a job with more than 200 versions lists the current one', async ({ page }) => {
+	test.setTimeout(120_000);
+	const name = `many-versions-e2e-${Date.now()}`;
+	const spec = (n: number) => ({
+		apiVersion: 'damson.dev/v1',
+		kind: 'Job',
+		metadata: { project: 'default', name },
+		spec: { steps: [{ id: 'only', plugin: 'ssh', with: { node: 'n', command: `echo ${n}` } }] }
+	});
+	const created = await page.request.post('/api/v1/jobs', { data: { spec: spec(1) } });
+	expect(created.status()).toBe(201);
+	const { job } = await created.json();
+	for (let v = 2; v <= 205; v++) {
+		const r = await page.request.post(`/api/v1/jobs/${job.id}/versions`, {
+			data: { spec: spec(v), expected_version: v - 1 }
+		});
+		expect(r.status()).toBe(201);
+	}
+	await page.goto(`/jobs/${job.id}`);
+	await page.getByTestId('job-tab-definition').click();
+	await expect(page.locator('[data-testid="version-row"][data-version="205"]')).toContainText(
+		'current'
+	);
+	await expect(page.getByTestId('version-row')).toHaveCount(205);
+});
+
+test('a failed compare clears the old diff and shows the error', async ({ page }) => {
+	const name = `compare-fail-e2e-${Date.now()}`;
+	const spec = (command: string) => ({
+		apiVersion: 'damson.dev/v1',
+		kind: 'Job',
+		metadata: { project: 'default', name },
+		spec: { steps: [{ id: 'only', plugin: 'ssh', with: { node: 'n', command } }] }
+	});
+	const created = await page.request.post('/api/v1/jobs', { data: { spec: spec('echo one') } });
+	const { job } = await created.json();
+	await page.request.post(`/api/v1/jobs/${job.id}/versions`, {
+		data: { spec: spec('echo two'), expected_version: 1 }
+	});
+	await page.goto(`/jobs/${job.id}`);
+	await page.getByTestId('job-tab-definition').click();
+	await page.getByTestId('diff-show').click();
+	await expect(page.getByTestId('diff')).toBeVisible();
+	await expect(page.getByTestId('diff-caption')).toHaveText('Changes from v1 to v2');
+	await expect(page.getByTestId('diff')).toHaveAttribute('tabindex', '0');
+
+	await page.route(`**/api/v1/jobs/${job.id}/versions/1`, (route) =>
+		route.fulfill({
+			status: 500,
+			contentType: 'application/problem+json',
+			body: JSON.stringify({ title: 'Internal Server Error', status: 500, detail: 'boom' })
+		})
+	);
+	await page.getByTestId('diff-show').click();
+	await expect(page.getByRole('alert').filter({ hasText: 'boom' })).toBeVisible();
+	await expect(page.getByTestId('diff')).toHaveCount(0);
+	await expect(page.getByTestId('diff-caption')).toHaveCount(0);
+});

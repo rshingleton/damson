@@ -80,7 +80,10 @@ func registerAudit(api huma.API, d deps) {
 		if err := d.requireToReadAudit(ctx, in.Project); err != nil {
 			return nil, apiError(ctx, err)
 		}
-		p, _ := PrincipalFrom(ctx)
+		p, ok := PrincipalFrom(ctx)
+		if !ok {
+			return nil, apiError(ctx, errForbidden)
+		}
 		// Secret names, fields and refs (including node credentials) are for instance admins.
 		f := store.AuditFilter{TargetType: in.TargetType, Target: in.Target, Project: in.Project, HideSecrets: !p.InstanceAdmin,
 			Action: in.Action, Actor: in.Actor, HideSystem: in.HideSystem}
@@ -90,6 +93,9 @@ func registerAudit(api huma.API, d deps) {
 		}
 		if f.To, err = parseAuditTime("to", in.To); err != nil {
 			return nil, err
+		}
+		if !f.From.IsZero() && !f.To.IsZero() && f.From.After(f.To) {
+			return nil, newHumaError(http.StatusBadRequest, "from must not be later than to")
 		}
 		cur, err := decodeCursor(ctx, in.Cursor)
 		if err != nil {

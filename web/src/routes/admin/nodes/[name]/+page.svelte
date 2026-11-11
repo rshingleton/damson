@@ -133,7 +133,7 @@
 	<title>{name} - Nodes - Damson</title>
 </svelte:head>
 
-<main class="mx-auto max-w-4xl space-y-6 px-4 py-8">
+<div class="mx-auto max-w-4xl space-y-6 px-4 py-8">
 	<p class="text-sm">
 		<a class="underline-offset-4 hover:underline" href={resolve('/admin/nodes')}>Nodes</a> / {name}
 	</p>
@@ -230,4 +230,4 @@
 			</div>
 		{/if}
 	{/if}
-</main>
+</div>

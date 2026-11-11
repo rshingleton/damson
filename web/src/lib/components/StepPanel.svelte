@@ -24,13 +24,25 @@
 
 	let step = $state<StepDetail | null>(null);
 	let error = $state<string | null>(null);
+	let missing = $state(false); // the run was read and has no step at this path
+	let shownPath = '';
 
 	$effect(() => {
 		void stamp;
 		const ctl = new AbortController();
+		// A different step starts empty: the last one's status must not stand in for it.
+		if (shownPath !== path) {
+			shownPath = path;
+			step = null;
+			missing = false;
+			error = null;
+		}
+		const asked = path;
 		fetchRunDetail(runId, ctl.signal)
 			.then((r) => {
+				if (ctl.signal.aborted || asked !== path) return;
 				step = (r.steps ?? []).find((s) => s.path === path) ?? null;
+				missing = step === null;
 				error = null;
 			})
 			.catch((e) => {
@@ -50,6 +62,8 @@
 	</div>
 	{#if error}
 		<p class="text-sm text-destructive" role="alert">{error}</p>
+	{:else if missing}
+		<p class="text-sm text-muted-foreground" data-testid="step-missing">Step not found.</p>
 	{:else if step}
 		{#if step.error}
 			<p class="text-sm text-destructive" data-testid="step-error">

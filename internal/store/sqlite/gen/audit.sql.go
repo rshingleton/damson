@@ -53,8 +53,8 @@ WHERE (CAST(?1 AS TEXT) = '' OR project_path = ?1
   AND (CAST(?5 AS TEXT) = '' OR target_type = ?5)
   AND (CAST(?6 AS TEXT) = '' OR target = ?6)
   AND (CAST(?7 AS TEXT) = '' OR action = ?7)
-  AND (CAST(?8 AS TEXT) = '' OR actor = ?8)
-  AND (CAST(?9 AS TEXT) = '' OR actor NOT LIKE 'system:%')
+  AND (CAST(?8 AS TEXT) = '' OR actor = ?8 OR lower(actor_name) = lower(?8))
+  AND (CAST(?9 AS TEXT) = '' OR lower(actor) NOT LIKE 'system:%')
   AND at >= ?10 AND at < ?11
   AND (at < ?12 OR (at = ?12 AND id < ?13))
 ORDER BY at DESC, id DESC
@@ -81,7 +81,7 @@ type ListAuditEventsParams struct {
 // Newest first. The keyset is (at, id) of the last row of the previous page;
 // before_id = ” with a far-future before_at starts at the top. from_at (inclusive)
 // and to_at (exclusive) bound the time range; a zero from_at and a far-future to_at
-// leave it open. A project selects
+// leave it open. The actor arg matches the actor id exactly or its display name case-insensitively; hide_system compares lower-cased, so both databases agree. A project selects
 // the events of that project and its descendants ("<project>/" up to "<project>0").
 func (q *Queries) ListAuditEvents(ctx context.Context, arg ListAuditEventsParams) ([]AuditEvent, error) {
 	rows, err := q.db.QueryContext(ctx, listAuditEvents,

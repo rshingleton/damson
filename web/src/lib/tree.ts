@@ -39,30 +39,3 @@ export async function fetchShared(): Promise<{ items: SharedJob[]; truncated: bo
 	if (res.data === undefined) throw res.error ?? new Error('Request failed');
 	return { items: res.data.items ?? [], truncated: res.data.truncated ?? false };
 }
-
-const KEY = 'damson.tree.expanded';
-
-/** The paths the user left expanded, kept per browser and user. Storage may be blocked. */
-export function loadExpanded(sub: string): Set<string> {
-	try {
-		const raw = localStorage.getItem(`${KEY}:${sub}`);
-		const list: unknown = raw ? JSON.parse(raw) : [];
-		return new Set(Array.isArray(list) ? list.filter((x) => typeof x === 'string') : []);
-	} catch {
-		return new Set();
-	}
-}
-
-export function saveExpanded(sub: string, open: Set<string>): void {
-	try {
-		localStorage.setItem(`${KEY}:${sub}`, JSON.stringify([...open]));
-	} catch {
-		// storage blocked: the tree then starts collapsed, which only costs a click
-	}
-}
-
-/** The project paths on the way to path, itself included: what to open to show it. */
-export function ancestry(path: string): string[] {
-	const parts = path.split('/');
-	return parts.map((_, i) => parts.slice(0, i + 1).join('/'));
-}

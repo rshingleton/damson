@@ -87,3 +87,39 @@ test('a valid form starts a run and opens it', async ({ page }) => {
 	await page.getByRole('button', { name: /submit/i }).click();
 	await expect(page).toHaveURL(/\/-\/runs\/[^/]+$/);
 });
+
+test('the submit button is disabled while the run is requested', async ({ page }) => {
+	await openDialog(page);
+	let release: () => void = () => {};
+	const held = new Promise<void>((res) => (release = res));
+	await page.route('**/api/v1/jobs/*/runs', async (route) => {
+		if (route.request().method() !== 'POST') return route.continue();
+		await held;
+		return route.continue();
+	});
+	await page.getByRole('button', { name: /submit/i }).click();
+	await expect(page.getByRole('button', { name: /submit/i })).toBeDisabled();
+	release();
+	await expect(page).toHaveURL(/\/-\/runs\/[^/]+$/);
+});
+
+test('a server message beside a field clears when that field is edited', async ({ page }) => {
+	await openDialog(page);
+	await page.route('**/api/v1/jobs/*/runs', (route) => {
+		if (route.request().method() !== 'POST') return route.continue();
+		return route.fulfill({
+			status: 422,
+			contentType: 'application/problem+json',
+			body: JSON.stringify({
+				type: 'about:blank',
+				title: 'Unprocessable Entity',
+				status: 422,
+				errors: [{ message: 'version 9.9 is not published', location: 'options.version' }]
+			})
+		});
+	});
+	await page.getByRole('button', { name: /submit/i }).click();
+	await expect(page.getByTestId('schema-form')).toContainText('version 9.9 is not published');
+	await page.getByLabel('Version').fill('2.0.0');
+	await expect(page.getByTestId('schema-form')).not.toContainText('version 9.9 is not published');
+});

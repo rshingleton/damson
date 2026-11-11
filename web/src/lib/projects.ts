@@ -1,8 +1,8 @@
 import { api, type components } from '$lib/api/client';
-import { problemMessage } from '$lib/agents';
+import { isConflict, problemMessage } from '$lib/agents';
 import { getMe } from '$lib/session';
 
-export { problemMessage };
+export { isConflict, problemMessage };
 
 export type Project = components['schemas']['Project'];
 export type AccessRule = components['schemas']['AccessRule'];

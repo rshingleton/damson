@@ -1710,6 +1710,10 @@
               "array",
               "null"
             ]
+          },
+          "truncated": {
+            "description": "More jobs carry rules than were searched; some jobs shared through a rule of the job may be missing.",
+            "type": "boolean"
           }
         },
         "required": [
@@ -3684,7 +3688,7 @@
   "paths": {
     "/access/check": {
       "post": {
-        "description": "Evaluates the access rules for the given groups and email with the evaluator that enforces them, and names the rule that granted the role. The instance admin rule is evaluated at login and is not part of this. The check is audited as access.check, with counts, never the groups or the email.",
+        "description": "Name a project or a job, not both: a job is checked in its own project. Evaluates the access rules for the given groups and email with the evaluator that enforces them, and names the rule that granted the role. The instance admin rule is evaluated at login and is not part of this. The check is audited as access.check, with counts, never the groups or the email.",
         "operationId": "check-access",
         "requestBody": {
           "content": {
@@ -3706,6 +3710,16 @@
               }
             },
             "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request"
           },
           "401": {
             "content": {

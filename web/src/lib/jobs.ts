@@ -1,7 +1,7 @@
 import { api, type components } from '$lib/api/client';
-import { isNotFound, problemMessage } from '$lib/agents';
+import { isConflict, isNotFound, problemMessage } from '$lib/agents';
 
-export { isNotFound, problemMessage };
+export { isConflict, isNotFound, problemMessage };
 
 export type Job = components['schemas']['Job'];
 
@@ -19,24 +19,15 @@ export async function fetchScopedJobs(
 	return { items: data.items ?? [], next: data.next_cursor ?? '' };
 }
 
-/** The crumbs of a project path: each with the path it stands for. */
-export function crumbs(scope: string): { label: string; path: string }[] {
-	if (!scope) return [];
-	const parts = scope.split('/');
-	return parts.map((label, i) => ({ label, path: parts.slice(0, i + 1).join('/') }));
-}
-
-/** Jobs of the default project, newest page first; bounded like the other lists. */
-export async function fetchJobs(signal?: AbortSignal): Promise<Job[]> {
-	const { data, error } = await api.GET('/jobs', { params: { query: { limit: 200 } }, signal });
-	if (error !== undefined || !data) throw error ?? new Error('Empty response');
-	return data.items ?? [];
-}
-
-/** The project path of a job, or null when the caller cannot read it. */
+/**
+ * The project path of a job, or null on a 404 (missing, or no role). Any other failure,
+ * a 5xx or a network error, throws, so a caller never reads it as "not found".
+ */
 export async function fetchJobProject(id: string, signal?: AbortSignal): Promise<string | null> {
-	const { data } = await api.GET('/jobs/{id}', { params: { path: { id } }, signal });
-	return data?.job.project ?? null;
+	const { data, error } = await api.GET('/jobs/{id}', { params: { path: { id } }, signal });
+	if (data) return data.job.project;
+	if (error !== undefined && !isNotFound(error)) throw error;
+	return null;
 }
 
 /** A job and the graph of its current version. */
@@ -54,17 +45,27 @@ export async function fetchJobGraph(id: string, signal?: AbortSignal) {
 
 export type JobVersionInfo = components['schemas']['JobVersion'];
 
-/** Every version of a job, ascending, without specs (bounded at 200). */
+// shortcut: at most 100 pages (20 000 versions) are followed, so a bad cursor cannot loop; raise it if jobs get longer histories.
+const MAX_VERSION_PAGES = 100;
+
+/** Every version of a job, ascending, without specs: follows next_cursor to the last page. */
 export async function fetchVersions(
 	jobId: string,
 	signal?: AbortSignal
 ): Promise<JobVersionInfo[]> {
-	const { data, error } = await api.GET('/jobs/{id}/versions', {
-		params: { path: { id: jobId }, query: { limit: 200 } },
-		signal
-	});
-	if (error !== undefined || !data) throw error ?? new Error('Empty response');
-	return data.items ?? [];
+	const out: JobVersionInfo[] = [];
+	let cursor: string | undefined;
+	for (let page = 0; page < MAX_VERSION_PAGES; page++) {
+		const { data, error } = await api.GET('/jobs/{id}/versions', {
+			params: { path: { id: jobId }, query: { limit: 200, cursor } },
+			signal
+		});
+		if (error !== undefined || !data) throw error ?? new Error('Empty response');
+		out.push(...(data.items ?? []));
+		if (!data.next_cursor) break;
+		cursor = data.next_cursor;
+	}
+	return out;
 }
 
 /** One version's spec. */

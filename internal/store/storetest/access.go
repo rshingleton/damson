@@ -339,3 +339,52 @@ func testProjectNodeScope(t *testing.T, s store.Store) {
 		t.Errorf("%d node scope events; want 2", n)
 	}
 }
+
+// testAuditCaseInsensitiveActors: hide_system and the actor filter agree on both
+// databases. Postgres LIKE and = are case-sensitive, SQLite's LIKE is not, so
+// rows are mixed-case on purpose; the actor filter also reads actor_name.
+func testAuditCaseInsensitiveActors(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	migrated(t, s)
+	for _, r := range []struct{ id, actor, name string }{
+		{"g1", "System:Dispatch", ""},
+		{"g2", "SYSTEM:x", ""},
+		{"g3", "systemic:x", ""},
+		{"g4", "user:U1", "U1@Example.org"},
+		{"g5", "user:u5", ""},
+		{"g6", "user:u6", "Ünal@x.org"},
+	} {
+		ev := store.AuditEvent{ID: r.id, At: t0, Actor: r.actor, ActorName: r.name, Action: "x", TargetType: "x", Target: r.id}
+		if err := s.AppendAuditEvent(ctx, ev); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ids := func(f store.AuditFilter) string {
+		evs, err := s.ListAuditEvents(ctx, f, 50)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, e := range evs {
+			out = append(out, e.ID)
+		}
+		sort.Strings(out)
+		return strings.Join(out, ",")
+	}
+	for name, tc := range map[string]struct {
+		f    store.AuditFilter
+		want string
+	}{
+		"hide system, any case":  {store.AuditFilter{HideSystem: true}, "g3,g4,g5,g6"},
+		"actor id is case-exact": {store.AuditFilter{Actor: "USER:u1"}, ""},
+		"actor id, same case":    {store.AuditFilter{Actor: "user:U1"}, "g4"},
+		"actor name, other case": {store.AuditFilter{Actor: "u1@example.ORG"}, "g4"},
+		"actor name, non-ASCII":  {store.AuditFilter{Actor: "Ünal@x.org"}, "g6"},
+		"actor is exact":         {store.AuditFilter{Actor: "user:u"}, ""},
+		"actor name is exact":    {store.AuditFilter{Actor: "u1@example"}, ""},
+	} {
+		if got := ids(tc.f); got != tc.want {
+			t.Errorf("%s: got %q, want %q", name, got, tc.want)
+		}
+	}
+}

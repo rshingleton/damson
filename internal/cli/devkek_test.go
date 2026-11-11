@@ -21,7 +21,11 @@ import (
 
 func devCfg(t *testing.T) (config.Config, string) {
 	t.Helper()
-	db := filepath.Join(t.TempDir(), "damson.db")
+	dir, err := filepath.EvalSymlinks(t.TempDir()) // macOS: /var is a link to /private/var
+	if err != nil {
+		t.Fatal(err)
+	}
+	db := filepath.Join(dir, "damson.db")
 	return config.Config{Database: config.Database{Driver: config.DriverSQLite, DSN: db}}, db + ".kek"
 }
 

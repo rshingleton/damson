@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_DIFF_LINES, lineDiff, specText } from './diff';
+import { MAX_DIFF_LINES, compareOutcome, lineDiff, specText } from './diff';
 
 const kinds = (d: ReturnType<typeof lineDiff>) => d?.map((l) => `${l.kind[0]}:${l.text}`);
 
@@ -46,5 +46,16 @@ describe('lineDiff', () => {
 		const big = new Array(MAX_DIFF_LINES + 1).fill('l').join('\n');
 		expect(lineDiff(big, 'a')).toBeNull();
 		expect(lineDiff('a', big)).toBeNull();
+	});
+});
+
+describe('compareOutcome', () => {
+	const same = [{ kind: 'same' as const, text: 'a' }];
+	it('says identical only when the checksums match', () => {
+		expect(compareOutcome(same, 'x', 'x')).toBe('identical');
+		expect(compareOutcome(same, 'x', 'y')).toBe('formatting');
+	});
+	it('reports changed lines whatever the checksums', () => {
+		expect(compareOutcome([{ kind: 'added', text: 'b' }, ...same], 'x', 'y')).toBe('changed');
 	});
 });

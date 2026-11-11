@@ -6,7 +6,7 @@
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import { jobRest } from '$lib/jobroute';
-	import { fetchScopedJobs, problemMessage, type Job } from '$lib/jobs';
+	import { fetchScopedJobs, isNotFound, problemMessage, type Job } from '$lib/jobs';
 	import { atLeast, fetchProject } from '$lib/projects';
 
 	/** The project whose jobs to list, with those below it. */
@@ -17,17 +17,23 @@
 	let loaded = $state(false);
 	let loadingMore = $state(false);
 	let error = $state<string | null>(null);
+	let missing = $state(false); // the error was a 404: absent, or no role
+	let epoch = 0; // bumped on every scope change; a late "More…" of an old scope is dropped
 	let myRole = $state<string | undefined>(undefined); // the caller's role on the scope project
 
 	$effect(() => {
 		const current = scope;
 		const ctl = new AbortController();
+		epoch++;
+		loadingMore = false;
 		myRole = undefined;
 		if (current) fetchProject(current).then((p) => current === scope && (myRole = p?.my_role));
 		loaded = false;
 		error = null;
+		missing = false;
 		fetchScopedJobs(current, '', ctl.signal)
 			.then((r) => {
+				if (ctl.signal.aborted) return;
 				jobs = r.items;
 				next = r.next;
 			})
@@ -36,6 +42,7 @@
 					jobs = [];
 					next = '';
 					error = problemMessage(e);
+					missing = isNotFound(e);
 				}
 			})
 			.finally(() => {
@@ -45,15 +52,19 @@
 	});
 
 	async function more() {
+		const mine = epoch;
 		loadingMore = true;
 		try {
 			const r = await fetchScopedJobs(scope, next);
+			if (mine !== epoch) return;
 			jobs = [...jobs, ...r.items];
 			next = r.next;
 		} catch (e) {
+			if (mine !== epoch) return;
 			error = problemMessage(e);
+			missing = isNotFound(e);
 		} finally {
-			loadingMore = false;
+			if (mine === epoch) loadingMore = false;
 		}
 	}
 </script>
@@ -74,9 +85,12 @@
 	{#if error}
 		<Alert.Root variant="destructive" data-testid="jobs-error">
 			<Alert.Description>
-				Not found, or you may not have access. <a class="underline" href={resolve('/')}
-					>Back to projects</a
-				>.
+				{#if missing}
+					Not found, or you may not have access.
+				{:else}
+					{error}
+				{/if}
+				<a class="underline" href={resolve('/')}>Back to projects</a>.
 			</Alert.Description>
 		</Alert.Root>
 	{/if}

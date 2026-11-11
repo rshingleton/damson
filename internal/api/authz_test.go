@@ -553,3 +553,45 @@ func TestNodeScopeEndpoints(t *testing.T) {
 		assert.Equal(t, 404, w.admin("PUT", "/api/v1/projects/nope/node-scope", `{"node_scope":""}`).Code)
 	})
 }
+
+func TestRunsOfAProjectForServiceTokens(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		w := newAuthzWorld(t, st, 1)
+		w.mustAdmin("POST", "/api/v1/jobs/"+w.webJob+"/runs", `{"options":{}}`, 201)
+		var acct api.ServiceAccount
+		require.NoError(t, json.Unmarshal(w.mustAdmin("POST", "/api/v1/service-accounts", `{"name":"ci"}`, 201), &acct))
+		mk := func(project string) string {
+			var tok api.CreatedServiceToken
+			body := fmt.Sprintf(`{"name":"t","project":%q,"role":"viewer"}`, project)
+			require.NoError(t, json.Unmarshal(w.mustAdmin("POST", "/api/v1/service-accounts/"+acct.ID+"/tokens", body, 201), &tok))
+			return tok.Token
+		}
+		runs := func(auth, query string) (int, int) {
+			rec := w.do(0, "GET", "/api/v1/runs"+query, "", withHeader("Authorization", "Bearer "+auth))
+			var b struct{ Items []api.Run }
+			if rec.Code == 200 {
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &b))
+			}
+			return rec.Code, len(b.Items)
+		}
+		scoped, unscoped := mk("team"), mk("")
+		code, n := runs(scoped, "?project=team")
+		assert.Equal(t, 200, code, "a token lists the runs of its own project")
+		assert.Equal(t, 1, n)
+		code, n = runs(scoped, "?project=team%2Fweb")
+		assert.Equal(t, 200, code, "and of a project below it")
+		assert.Equal(t, 1, n)
+		code, _ = runs(scoped, "?project=ops")
+		assert.Equal(t, 404, code, "a project out of scope looks missing")
+		code, _ = runs(scoped, "")
+		assert.Equal(t, 404, code, "without a project the list spans projects a scoped token does not cover")
+		code, n = runs(unscoped, "?project=team")
+		assert.Equal(t, 200, code)
+		assert.Equal(t, 1, n)
+		code, _ = runs(unscoped, "")
+		assert.Equal(t, 200, code)
+		code, n = runs(w.oidcFixture.admin, "?project=team")
+		assert.Equal(t, 200, code, "the instance admin")
+		assert.Equal(t, 1, n)
+	})
+}

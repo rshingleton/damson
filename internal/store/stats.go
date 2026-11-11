@@ -13,6 +13,30 @@ type ProjectCounts struct {
 	Running   int
 }
 
+// CountsFold builds the result of StatsStore.ProjectCounts from the rows of
+// the two grouped queries, which both backends run; only the row types differ.
+type CountsFold map[string]ProjectCounts
+
+// AddJobs records the number of live jobs of a project.
+func (f CountsFold) AddJobs(projectID string, n int64) {
+	c := f[projectID]
+	c.Jobs = int(n)
+	f[projectID] = c
+}
+
+// AddRuns records the runs of one status of a project; only failed and
+// running runs are counted, any other status is ignored.
+func (f CountsFold) AddRuns(projectID, status string, n int64) {
+	c := f[projectID]
+	switch RunStatus(status) {
+	case RunFailed:
+		c.Failed24h = int(n)
+	case RunRunning:
+		c.Running = int(n)
+	}
+	f[projectID] = c
+}
+
 // StatsStore counts jobs and runs per project with two grouped queries, never
 // one per project.
 type StatsStore interface {

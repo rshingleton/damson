@@ -3,10 +3,12 @@
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
 	import * as Alert from '$lib/components/ui/alert';
+	import { Button } from '$lib/components/ui/button';
 	import { Skeleton } from '$lib/components/ui/skeleton';
 	import NotFound from '$lib/components/NotFound.svelte';
 	import SpecEditor from '$lib/components/SpecEditor.svelte';
-	import { isNotFound, problemMessage, type Job } from '$lib/jobs';
+	import { jobRest } from '$lib/jobroute';
+	import { isConflict, isNotFound, problemMessage, type Job } from '$lib/jobs';
 	import { atLeast } from '$lib/projects';
 	import { createVersion, loadForEdit } from '$lib/specedit';
 
@@ -15,12 +17,17 @@
 	let text = $state('');
 	let missing = $state(false);
 	let error = $state<string | null>(null);
+	// Set when a save lost to a newer version; Reload latest clears it.
+	let stale = $state(false);
+	// Bumped to remount the editor so its messages reset with the reloaded text.
+	let epoch = $state(0);
 
 	$effect(() => {
 		const jobId = id;
 		job = null;
 		missing = false;
 		error = null;
+		stale = false;
 		loadForEdit(jobId)
 			.then((r) => {
 				if (jobId !== id) return;
@@ -28,6 +35,7 @@
 				text = r.text;
 			})
 			.catch((e) => {
+				if (jobId !== id) return;
 				if (isNotFound(e)) missing = true;
 				else error = problemMessage(e);
 			});
@@ -45,8 +53,27 @@
 
 	async function save(t: string) {
 		if (!job) return;
-		await createVersion(job.id, t, job.current_version);
-		await goto(resolve('/jobs/[id]', { id: job.id }));
+		try {
+			await createVersion(job.id, t, job.current_version);
+		} catch (e) {
+			if (isConflict(e)) stale = true;
+			throw e;
+		}
+		await goto(resolve('/projects/[...path]', { path: jobRest(job.project, job.id) }));
+	}
+
+	async function reload() {
+		const jobId = id;
+		try {
+			const r = await loadForEdit(jobId);
+			if (jobId !== id) return;
+			job = r.job;
+			text = r.text;
+			stale = false;
+			epoch++;
+		} catch (e) {
+			if (jobId === id) error = problemMessage(e);
+		}
 	}
 </script>
 
@@ -58,7 +85,9 @@
 	<div class="flex items-baseline gap-3">
 		<a
 			class="text-sm text-muted-foreground hover:text-foreground"
-			href={resolve('/jobs/[id]', { id })}>Back to job</a
+			href={job
+				? resolve('/projects/[...path]', { path: jobRest(job.project, id) })
+				: resolve('/jobs/[id]', { id })}>Back to job</a
 		>
 		<h1 class="text-2xl font-semibold" data-testid="editor-title">
 			{job ? `New version of ${job.name}` : 'Edit job'}
@@ -81,13 +110,25 @@
 				<Alert.Description>{reason} The spec is shown read-only.</Alert.Description>
 			</Alert.Root>
 		{/if}
-		<SpecEditor
-			bind:text
-			readonly={reason !== null}
-			saveLabel="Save new version"
-			onsave={save}
-			jobId={job.id}
-			role={job.my_role}
-		/>
+		{#if stale}
+			<Alert.Root variant="destructive" data-testid="editor-stale">
+				<Alert.Description class="flex items-center justify-between gap-3">
+					<span>Another version was saved after the one this edit is based on.</span>
+					<Button variant="outline" size="sm" onclick={reload} data-testid="editor-reload"
+						>Reload latest</Button
+					>
+				</Alert.Description>
+			</Alert.Root>
+		{/if}
+		{#key epoch}
+			<SpecEditor
+				bind:text
+				readonly={reason !== null}
+				saveLabel="Save new version"
+				onsave={save}
+				jobId={job.id}
+				role={job.my_role}
+			/>
+		{/key}
 	{/if}
 </main>

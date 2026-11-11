@@ -22,6 +22,12 @@ export type LogLevel = 'all' | 'stdout' | 'stderr';
 /** Rows kept in memory and offered to the list; older ones are dropped and counted. */
 export const MAX_LOG_ROWS = 5000;
 
+/** A displayed row is cut to this many characters, the last one an ellipsis. */
+export const MAX_ROW_CHARS = 10_000;
+
+const clip = (t: string) =>
+	t.length > MAX_ROW_CHARS ? t.slice(0, MAX_ROW_CHARS - 1) + '\u2026' : t;
+
 /**
  * The lines of one execution as the viewer holds them. A line is applied once:
  * the stream replays from the start after a reconnect, so a sequence number at or
@@ -41,15 +47,19 @@ export class LogBuffer {
 
 	/** Applies a line; false when it was already seen. */
 	push(l: LogLine): boolean {
+		// The stream is parsed JSON: a malformed payload is dropped, never stored as NaN.
+		if (!l || typeof l.seq !== 'number' || !Number.isFinite(l.seq) || typeof l.line !== 'string')
+			return false;
 		if (l.seq <= this.lastSeq) return false;
 		this.lastSeq = l.seq;
 		this.total++;
-		this.add({ kind: 'line', seq: l.seq, ts: l.ts, stream: l.stream, text: l.line });
+		this.add({ kind: 'line', seq: l.seq, ts: l.ts, stream: l.stream, text: clip(l.line) });
 		return true;
 	}
 
 	/** Marks a range that will not arrive; false when it lies behind what was applied. */
 	gap(g: LogGap): boolean {
+		if (!g || !Number.isFinite(g.seq_from) || !Number.isFinite(g.seq_to)) return false;
 		if (g.seq_to <= this.lastSeq) return false;
 		this.lastSeq = g.seq_to;
 		this.add({ kind: 'gap', from: g.seq_from, to: g.seq_to });

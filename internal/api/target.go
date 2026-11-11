@@ -16,7 +16,7 @@ const (
 	tgtMissing                    // the addressed thing does not exist: the handler answers 404
 	tgtNoParent                   // it exists but its job or project row is gone: refuse
 	tgtNone                       // the route names no project
-	tgtAll                        // the route spans every project (list-runs without a job)
+	tgtAll                        // the route spans every project (list-runs without a job or project)
 )
 
 // target is what a request addresses.
@@ -71,7 +71,15 @@ func (d deps) target(ctx huma.Context, on subject) (target, error) {
 		}
 	case subjListRuns:
 		if jobID = ctx.Query("job"); jobID == "" {
-			return target{kind: tgtAll}, nil
+			if project = ctx.Query("project"); project == "" {
+				return target{kind: tgtAll}, nil
+			}
+			if store.ValidateProjectPath(project) != nil {
+				return target{kind: tgtMissing}, nil
+			}
+			// A project need not exist here: the handler answers 404 for one the
+			// caller cannot see, as it does for one that is missing.
+			return target{kind: tgtFound, project: project}, nil
 		}
 		project, err = d.projectOfJob(ctx.Context(), jobID)
 	case subjJob:

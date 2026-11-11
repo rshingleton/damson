@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseAnsi } from './ansi';
-import { LogBuffer, MAX_LOG_ROWS, visibleWindow } from './logs';
+import { LogBuffer, MAX_LOG_ROWS, MAX_ROW_CHARS, visibleWindow, type LogLine } from './logs';
 
 const line = (seq: number) => ({ seq, ts: '', stream: 'stdout', line: `l${seq}` });
 
@@ -85,5 +85,65 @@ describe('parseAnsi', () => {
 		const s = parseAnsi('\u001b[91mx\u001b[my');
 		expect(s[0].cls).toContain('text-red-600');
 		expect(s[1].cls).toBe('');
+	});
+});
+
+describe('parseAnsi extended colours', () => {
+	it.each([
+		['\u001b[38;5;31mx', 'x'],
+		['\u001b[38;2;1;2;3mx', 'x'],
+		['\u001b[48;5;0mx', 'x'],
+		['\u001b[48;2;9;9;9mx', 'x']
+	])('skips the parameters of %j so none is read as a style', (input, text) => {
+		const s = parseAnsi(input);
+		expect(s.map((x) => x.text)).toEqual([text]);
+		// 31 inside 38;5;31 is a colour index, not red; 1 and 2 and 3 are not bold.
+		expect(s[0].cls).toBe('');
+	});
+
+	it('still applies a code that follows an extended colour', () => {
+		const s = parseAnsi('\u001b[38;5;31;1mx');
+		expect(s[0].cls).toBe('font-bold');
+	});
+});
+
+describe('LogBuffer payload guard', () => {
+	it('drops a non-number seq and a missing line instead of storing NaN', () => {
+		const b = new LogBuffer();
+		expect(b.push({ seq: '5', ts: '', stream: 'stdout', line: 'x' } as unknown as LogLine)).toBe(
+			false
+		);
+		expect(b.push({ seq: 1, ts: '', stream: 'stdout' } as unknown as LogLine)).toBe(false);
+		expect(b.push(null as unknown as LogLine)).toBe(false);
+		expect(b.push({ seq: NaN, ts: '', stream: 'stdout', line: 'x' })).toBe(false);
+		expect(b.rows).toEqual([]);
+		expect(b.lastSeq).toBe(0);
+		expect(b.push(line(1))).toBe(true);
+	});
+
+	it('drops a gap with a non-number bound', () => {
+		const b = new LogBuffer();
+		expect(
+			b.gap({ seq_from: 1, seq_to: 'x' } as unknown as { seq_from: number; seq_to: number })
+		).toBe(false);
+		expect(b.lastSeq).toBe(0);
+	});
+});
+
+describe('LogBuffer row length', () => {
+	it('cuts a 50 000 character line to the cap, ending in an ellipsis', () => {
+		const b = new LogBuffer();
+		b.push({ seq: 1, ts: '', stream: 'stdout', line: 'a'.repeat(50_000) });
+		const r = b.rows[0];
+		expect(r.kind === 'line' && r.text.length).toBe(MAX_ROW_CHARS);
+		expect(r.kind === 'line' && r.text.endsWith('\u2026')).toBe(true);
+	});
+
+	it('leaves a line within the cap alone', () => {
+		const b = new LogBuffer();
+		b.push({ seq: 1, ts: '', stream: 'stdout', line: 'a'.repeat(MAX_ROW_CHARS) });
+		const r = b.rows[0];
+		expect(r.kind === 'line' && r.text.length).toBe(MAX_ROW_CHARS);
+		expect(r.kind === 'line' && r.text.endsWith('\u2026')).toBe(false);
 	});
 });

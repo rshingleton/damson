@@ -34,8 +34,12 @@ export function parseAnsi(line: string): AnsiSegment[] {
 		last = m.index + m[0].length;
 		if (m[2] !== 'm') continue;
 		const codes = m[1] === '' ? [0] : m[1].split(';').map((c) => Number(c) || 0);
-		for (const c of codes) {
-			if (c === 0) {
+		for (let i = 0; i < codes.length; i++) {
+			const c = codes[i];
+			if (c === 38 || c === 48) {
+				// Extended colour: 5;n or 2;r;g;b. Skip its parameters so they are not read as styles.
+				i += codes[i + 1] === 5 ? 2 : codes[i + 1] === 2 ? 4 : 0;
+			} else if (c === 0) {
 				fg = '';
 				bold = false;
 			} else if (c === 1) bold = true;

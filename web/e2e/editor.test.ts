@@ -68,3 +68,56 @@ test('the Details tab renames the job and Options adds an input', async ({ page 
 	await expect(page.getByTestId('spec-text')).toHaveValue(/"description": "hello"/);
 	await expect(page.getByTestId('spec-text')).toHaveValue(/"option1"/);
 });
+
+test('creating a job lands on its project-first URL', async ({ page }) => {
+	await page.goto('/jobs/new/default');
+	await page.getByTestId('spec-tab-json').click();
+	const spec = JSON.parse(await page.getByTestId('spec-text').inputValue());
+	spec.metadata.name = `created-e2e-${Date.now()}`;
+	await page.getByTestId('spec-text').fill(JSON.stringify(spec));
+	await page.getByTestId('spec-save').click();
+	await expect(page).toHaveURL(/\/projects\/default\/-\/jobs\/[^/]+$/);
+});
+
+test('a run in the Runs tab opens under its project', async ({ page }) => {
+	const id = await makeJob(page.request);
+	const run = await page.request.post(`/api/v1/jobs/${id}/runs`, { data: {} });
+	expect(run.status()).toBe(201);
+	const runId = (await run.json()).id as string;
+	await page.goto(`/projects/default/-/jobs/${id}/runs`);
+	await page.getByTestId('run-row').first().getByRole('link').first().click();
+	await expect(page).toHaveURL(new RegExp(`/projects/default/-/runs/${runId}$`));
+});
+
+test('a save that lost to a newer version offers Reload latest, then succeeds', async ({
+	page
+}) => {
+	const id = await makeJob(page.request);
+	await page.goto(`/jobs/${id}/edit`);
+	await expect(page.getByText('based on version 1')).toBeVisible();
+	// another editor lands version 2 first
+	const detail = await (await page.request.get(`/api/v1/jobs/${id}`)).json();
+	const next = await page.request.post(`/api/v1/jobs/${id}/versions`, {
+		data: { spec: detail.version.spec, expected_version: 1 }
+	});
+	expect(next.status()).toBe(201);
+	await page.getByTestId('spec-save').click();
+	await expect(page.getByTestId('editor-stale')).toBeVisible();
+	await page.getByTestId('editor-reload').click();
+	await expect(page.getByTestId('editor-stale')).toBeHidden();
+	await expect(page.getByText('based on version 2')).toBeVisible();
+	await page.getByTestId('spec-save').click();
+	await expect(page).toHaveURL(new RegExp(`/projects/default/-/jobs/${id}$`));
+});
+
+test('editing the spec clears the issues of the last check', async ({ page }) => {
+	const id = await makeJob(page.request);
+	await page.goto(`/jobs/${id}/edit`);
+	await page.getByTestId('spec-tab-steps').click();
+	await page.getByTestId('step-id-0').fill('Bad_ID');
+	await page.getByTestId('spec-validate').click();
+	await expect(page.getByTestId('spec-issues')).toBeVisible();
+	await page.getByTestId('step-id-0').fill('good');
+	await page.getByTestId('step-id-0').blur();
+	await expect(page.getByTestId('spec-issues')).toBeHidden();
+});

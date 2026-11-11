@@ -15,7 +15,7 @@ export interface paths {
         put?: never;
         /**
          * Why an identity has, or lacks, a role (instance admin)
-         * @description Evaluates the access rules for the given groups and email with the evaluator that enforces them, and names the rule that granted the role. The instance admin rule is evaluated at login and is not part of this. The check is audited as access.check, with counts, never the groups or the email.
+         * @description Name a project or a job, not both: a job is checked in its own project. Evaluates the access rules for the given groups and email with the evaluator that enforces them, and names the rule that granted the role. The instance admin rule is evaluated at login and is not part of this. The check is audited as access.check, with counts, never the groups or the email.
          */
         post: operations["check-access"];
         delete?: never;
@@ -1540,6 +1540,8 @@ export interface components {
         MyAccessOutputBody: {
             /** @description Projects first, ordered by path, then jobs reached only through a rule of the job. */
             items: components["schemas"]["MyAccessItem"][] | null;
+            /** @description More jobs carry rules than were searched; some jobs shared through a rule of the job may be missing. */
+            truncated?: boolean;
         };
         Node: {
             address: string;
@@ -2251,6 +2253,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AccessCheck"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
             /** @description Unauthorized */

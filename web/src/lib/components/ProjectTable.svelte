@@ -23,8 +23,19 @@
 
 	const REFRESH_MS = 10000;
 
-	let projects = $state<TreeProject[]>([]);
-	let jobs = $state<TreeJob[]>([]);
+	// The poll owns the first page; "More…" owns the rows after it, so a refresh never drops them.
+	let firstProjects = $state<TreeProject[]>([]);
+	let firstJobs = $state<TreeJob[]>([]);
+	let moreProjects = $state<TreeProject[]>([]);
+	let moreJobs = $state<TreeJob[]>([]);
+	const projects = $derived([
+		...firstProjects,
+		...moreProjects.filter((m) => !firstProjects.some((f) => f.path === m.path))
+	]);
+	const jobs = $derived([
+		...firstJobs,
+		...moreJobs.filter((m) => !firstJobs.some((f) => f.id === m.id))
+	]);
 	let next = $state('');
 	let jobsNext = $state('');
 	let loaded = $state(false);
@@ -38,10 +49,13 @@
 			try {
 				const level = await fetchLevel(path);
 				if (signal.aborted) return;
-				projects = level.projects;
-				jobs = level.jobs;
-				next = level.next;
-				jobsNext = level.jobsNext;
+				firstProjects = level.projects;
+				firstJobs = level.jobs;
+				// Cursors move on only through "More…" once it has loaded a page.
+				if (!moreProjects.length && !moreJobs.length) {
+					next = level.next;
+					jobsNext = level.jobsNext;
+				}
 				error = null;
 			} catch (e) {
 				if (!signal.aborted) error = problemMessage(e);
@@ -55,8 +69,8 @@
 		loadingMore = true;
 		try {
 			const level = await fetchLevel(path, next, jobsNext);
-			projects = [...projects, ...level.projects];
-			jobs = [...jobs, ...level.jobs];
+			moreProjects = [...moreProjects, ...level.projects];
+			moreJobs = [...moreJobs, ...level.jobs];
 			next = level.next;
 			jobsNext = level.jobsNext;
 		} catch (e) {

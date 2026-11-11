@@ -3,14 +3,15 @@
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
 	import SpecEditor from '$lib/components/SpecEditor.svelte';
+	import { jobRest } from '$lib/jobroute';
 	import { createJob, newJobTemplate } from '$lib/specedit';
 
 	// The project is the path after /jobs/new/, from the link that led here; the spec names it.
 	let text = $state(newJobTemplate(page.params.project ?? ''));
 
 	async function save(t: string) {
-		const id = await createJob(t);
-		await goto(resolve('/jobs/[id]', { id }));
+		const { id, project } = await createJob(t);
+		await goto(resolve('/projects/[...path]', { path: jobRest(project, id) }));
 	}
 </script>
 

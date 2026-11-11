@@ -133,7 +133,7 @@
 					<p class="text-sm text-destructive" role="alert" data-testid="search-error">
 						{matcher.error}
 					</p>
-				{:else if searchError}
+				{:else if searchError && !matcher.empty}
 					<p class="text-sm text-destructive" role="alert" data-testid="search-error">
 						{searchError}
 					</p>

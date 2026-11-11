@@ -48,6 +48,7 @@
 	function change(next: Spec) {
 		text = toText(next);
 		checked = null;
+		issues = [];
 	}
 
 	let checked = $state<Validation | null>(null);
@@ -114,7 +115,10 @@
 				spellcheck="false"
 				{readonly}
 				bind:value={text}
-				oninput={() => (checked = null)}
+				oninput={() => {
+					checked = null;
+					issues = [];
+				}}
 				data-testid="spec-text"></textarea>
 		{:else if tab === 'triggers' && jobId}
 			<p class="text-xs text-muted-foreground">

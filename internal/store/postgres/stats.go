@@ -20,21 +20,12 @@ func (s *Store) ProjectCounts(ctx context.Context, failedSince time.Time) (map[s
 	if err != nil {
 		return nil, fmt.Errorf("counting jobs by project: %w", err)
 	}
-	out := map[string]store.ProjectCounts{}
+	out := store.CountsFold{}
 	for _, j := range jobs {
-		c := out[j.ProjectID]
-		c.Jobs = int(j.N)
-		out[j.ProjectID] = c
+		out.AddJobs(j.ProjectID, j.N)
 	}
 	for _, r := range runs {
-		c := out[r.ProjectID]
-		switch r.Status {
-		case string(store.RunFailed):
-			c.Failed24h = int(r.N)
-		case string(store.RunRunning):
-			c.Running = int(r.N)
-		}
-		out[r.ProjectID] = c
+		out.AddRuns(r.ProjectID, r.Status, r.N)
 	}
 	return out, nil
 }

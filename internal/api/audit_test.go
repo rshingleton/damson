@@ -130,14 +130,26 @@ func TestAuditFilters(t *testing.T) {
 			return out
 		}
 		assert.Equal(t, []string{"flt-3", "flt-0"}, targets("actor=user:u1"))
+		assert.Equal(t, []string{"flt-3", "flt-0"}, targets("actor=U1@Example.org"), "the display name matches too, in any case")
 		assert.Equal(t, "u1@example.org", list("actor=user:u1")[0].ActorName)
 		assert.Equal(t, []string{"flt-1", "flt-0"}, targets("action=job.create"))
 		assert.Equal(t, []string{"flt-3", "flt-2", "flt-1", "flt-0"}, targets(""), "system rows are listed unless hidden")
 		assert.Equal(t, []string{"flt-3", "flt-1", "flt-0"}, targets("hide_system=true"))
 		assert.Equal(t, []string{"flt-2", "flt-1"}, targets("from=2026-03-01T11:00:00Z&to=2026-03-01T13:00:00Z"))
 		assert.Equal(t, []string{"flt-1"}, targets("from=2026-03-01T11:00:00Z&to=2026-03-01T12:00:00Z"), "to is exclusive")
-		for _, bad := range []string{"from=yesterday", "to=2026-03-01"} {
+		for _, bad := range []string{"from=yesterday", "to=2026-03-01", "from=2026-03-01T13:00:00Z&to=2026-03-01T12:00:00Z"} {
 			assert.Equal(t, http.StatusBadRequest, f.do("GET", "/api/v1/audit?"+bad, "", f.admin).Code, bad)
 		}
+	})
+}
+
+// A from later than to is a mistake of the caller, not an empty list.
+func TestAuditRefusesFromAfterTo(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		f := newSecretsFixture(t, st, false)
+		rec := f.do("GET", "/api/v1/audit?from=2026-03-01T13:00:00Z&to=2026-03-01T12:00:00Z", "", f.admin)
+		require.Equal(t, http.StatusBadRequest, rec.Code)
+		assert.Contains(t, rec.Body.String(), "from")
+		assert.Equal(t, http.StatusOK, f.do("GET", "/api/v1/audit?from=2026-03-01T12:00:00Z&to=2026-03-01T12:00:00Z", "", f.admin).Code, "equal bounds are an empty range, not an error")
 	})
 }

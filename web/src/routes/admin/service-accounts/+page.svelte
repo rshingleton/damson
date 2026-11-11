@@ -93,7 +93,7 @@
 	<title>Service accounts - Damson</title>
 </svelte:head>
 
-<main class="mx-auto max-w-6xl space-y-6 px-4 py-8">
+<div class="mx-auto max-w-6xl space-y-6 px-4 py-8">
 	<div class="flex items-center justify-between">
 		<h1 class="text-2xl font-semibold">Service accounts</h1>
 		{#if token}
@@ -251,4 +251,4 @@
 			</section>
 		{/if}
 	{/if}
-</main>
+</div>

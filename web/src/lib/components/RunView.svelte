@@ -61,21 +61,24 @@
 		status = '';
 
 		ran = null;
+		// The project check comes first: a run under the wrong project moves, and a failed
+		// check is shown, before the graph and the stream start.
 		fetchRunDetail(id, ctrl.signal)
-			.then(async (r) => {
-				if (ctrl.signal.aborted) return;
-				ran = { jobId: r.job_id, version: r.job_version };
-				const project = await fetchJobProject(r.job_id, ctrl.signal);
-				if (!ctrl.signal.aborted && project && project !== path) {
+			.then(async (d) => {
+				if (ctrl.signal.aborted) return null;
+				ran = { jobId: d.job_id, version: d.job_version };
+				const project = await fetchJobProject(d.job_id, ctrl.signal);
+				if (ctrl.signal.aborted) return null;
+				if (project && project !== path) {
 					void goto(resolve('/projects/[...path]', { path: runRest(project, id) }), {
 						replaceState: true
 					});
+					return null;
 				}
+				return fetchRunGraph(id, ctrl.signal);
 			})
-			.catch(() => {}); // the graph request reports a missing run; the version is a nicety
-		fetchRunGraph(id, ctrl.signal)
 			.then((r) => {
-				if (ctrl.signal.aborted) return;
+				if (!r || ctrl.signal.aborted) return;
 				graph = r.graph;
 				instances = byPath(fromEvents(r.steps));
 				closeStream = openStream(`/api/v1/runs/${encodeURIComponent(id)}/events`, {
